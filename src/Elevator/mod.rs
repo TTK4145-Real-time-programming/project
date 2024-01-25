@@ -1,3 +1,3 @@
-mod fsm;
+pub mod fsm;
 
 pub use fsm::ElevatorFSM;
