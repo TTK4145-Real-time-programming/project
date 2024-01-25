@@ -1,5 +1,7 @@
+/*
+* This file contains the scheduler for the elevator
+*/
 use driver_rust::elevio::{elev, poll};
-
 
 //Find orders above the elevator
 fn request_Above(e: Elevator) -> bool{
