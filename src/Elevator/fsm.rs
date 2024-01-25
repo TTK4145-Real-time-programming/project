@@ -1,5 +1,6 @@
 use driver_rust::elevio::elev::Elevator;
 use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
+use std::time::{Duration, Instant};
 
 enum Event {
     RequestReceived(u8, u8),
@@ -12,6 +13,7 @@ pub struct ElevatorFSM {
     order_list: Vec<Vec<bool>>,
     direction: u8,
     door_open: bool,
+    door_timer: Option<Instant>,
 }
 
 impl ElevatorFSM {
@@ -21,6 +23,7 @@ impl ElevatorFSM {
             order_list: vec![vec![false; num_floors as usize]; num_floors as usize],
             direction: DIRN_STOP,
             door_open: false,
+            door_timer: None,
         })
     }
 
@@ -66,7 +69,16 @@ impl ElevatorFSM {
                 let next_direction = self.choose_direction(floor);
                 self.elevator.motor_direction(next_direction);
             }
-            Event::NoEvent => {}
+            Event::NoEvent => {
+                // Check if the door is open and the timer has elapsed
+                if let Some(timer) = self.door_timer {
+                        if timer <= Instant::now() {
+                            self.door_open = false;
+                            self.door_timer = None;
+                        }
+                    }
+                }
+            }
         }
     }
 
