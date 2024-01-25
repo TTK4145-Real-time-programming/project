@@ -72,10 +72,9 @@ impl ElevatorFSM {
             Event::NoEvent => {
                 // Check if the door is open and the timer has elapsed
                 if let Some(timer) = self.door_timer {
-                        if timer <= Instant::now() {
-                            self.door_open = false;
-                            self.door_timer = None;
-                        }
+                    if timer <= Instant::now() {
+                        self.door_open = false;
+                        self.door_timer = None;
                     }
                 }
             }
