@@ -1,5 +1,5 @@
-use driver_rust::elevio::elev::{HALL_UP, HALL_DOWN, CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP};
 use driver_rust::elevio::elev::Elevator;
+use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
 
 enum Event {
     RequestReceived(u8, u8),
@@ -32,7 +32,6 @@ impl ElevatorFSM {
     }
 
     fn wait_for_event(&self) -> Event {
-
         // Checks if the elevator has reached a floor.
         if let Some(current_floor) = self.elevator.floor_sensor() {
             return Event::FloorReached(current_floor);
@@ -61,32 +60,33 @@ impl ElevatorFSM {
         match event {
             Event::RequestReceived(floor, request_type) => {
                 self.order_list[floor as usize][request_type as usize] = true;
-            },
+            }
             Event::FloorReached(floor) => {
                 self.complete_orders(floor);
                 let next_direction = self.choose_direction(floor);
                 self.elevator.motor_direction(next_direction);
-            },
-            Event::NoEvent => {},
+            }
+            Event::NoEvent => {}
         }
     }
 
     fn choose_direction(&mut self, floor: u8) -> u8 {
-
         // Continue up if there are orders above the elevator.
         if self.direction == DIRN_UP {
             for f in floor..self.elevator.num_floors {
-                if  self.order_list[f as usize][CAB as usize] || 
-                    self.order_list[f as usize][HALL_UP as usize] || 
-                    self.order_list[f as usize][HALL_DOWN as usize] {
+                if self.order_list[f as usize][CAB as usize]
+                    || self.order_list[f as usize][HALL_UP as usize]
+                    || self.order_list[f as usize][HALL_DOWN as usize]
+                {
                     return DIRN_UP;
                 }
             }
             // If there are no orders above, check if there are orders below.
             for f in (0..floor).rev() {
-                if  self.order_list[f as usize][CAB as usize] || 
-                    self.order_list[f as usize][HALL_UP as usize] ||
-                    self.order_list[f as usize][HALL_DOWN as usize] {
+                if self.order_list[f as usize][CAB as usize]
+                    || self.order_list[f as usize][HALL_UP as usize]
+                    || self.order_list[f as usize][HALL_DOWN as usize]
+                {
                     return DIRN_DOWN;
                 }
             }
@@ -94,17 +94,19 @@ impl ElevatorFSM {
         // Continue down if there are orders below the elevator.
         else if self.direction == DIRN_DOWN {
             for f in (0..floor).rev() {
-                if  self.order_list[f as usize][CAB as usize] || 
-                    self.order_list[f as usize][HALL_UP as usize] || 
-                    self.order_list[f as usize][HALL_DOWN as usize] {
+                if self.order_list[f as usize][CAB as usize]
+                    || self.order_list[f as usize][HALL_UP as usize]
+                    || self.order_list[f as usize][HALL_DOWN as usize]
+                {
                     return DIRN_DOWN;
                 }
             }
             // If there are no orders below, check if there are orders above.
             for f in floor..self.elevator.num_floors {
-                if  self.order_list[f as usize][CAB as usize] || 
-                    self.order_list[f as usize][HALL_UP as usize] || 
-                    self.order_list[f as usize][HALL_DOWN as usize] {
+                if self.order_list[f as usize][CAB as usize]
+                    || self.order_list[f as usize][HALL_UP as usize]
+                    || self.order_list[f as usize][HALL_DOWN as usize]
+                {
                     return DIRN_UP;
                 }
             }
@@ -115,16 +117,14 @@ impl ElevatorFSM {
     }
 
     fn complete_orders(&mut self, floor: u8) {
-
-        // Remove cab orders at current floor. 
+        // Remove cab orders at current floor.
         self.order_list[floor as usize][CAB as usize] = false;
 
         // Remove hall orders at current floor if elevator is moving in the same direction.
         if self.direction == DIRN_UP {
             self.order_list[floor as usize][HALL_UP as usize] = false;
             self.elevator.call_button_light(floor, HALL_UP, false);
-        }
-        else if self.direction == DIRN_DOWN {
+        } else if self.direction == DIRN_DOWN {
             self.order_list[floor as usize][HALL_DOWN as usize] = false;
             self.elevator.call_button_light(floor, HALL_DOWN, false);
         }
