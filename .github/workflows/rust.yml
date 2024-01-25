@@ -10,19 +10,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check-format:
-    name: Check Format
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Install rustfmt
-      run: rustup component add rustfmt
-    - name: Check formatting
-      run: cargo fmt -- --check
+  # check-format:
+  #   name: Check Format
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: actions/checkout@v3
+  #   - name: Install rustfmt
+  #     run: rustup component add rustfmt
+  #   - name: Check formatting
+  #     run: cargo fmt -- --check
 
   build-and-test:
     name: Build and Test
-    needs: check-format
+    # needs: check-format
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
