@@ -78,7 +78,7 @@ impl ElevatorFSM {
                         self.direction = next_direction;
                         self.elevator.motor_direction(next_direction);
                     }
-                }    
+                }
             }
             Event::FloorReached(floor) => {
                 self.complete_orders(floor);
@@ -88,7 +88,7 @@ impl ElevatorFSM {
                     let next_direction = self.choose_direction(floor);
                     self.direction = next_direction;
                     self.elevator.motor_direction(next_direction);
-                } 
+                }
             }
             Event::DoorClosed => {
                 let next_direction = self.choose_direction(self.floor.unwrap());
@@ -109,7 +109,7 @@ impl ElevatorFSM {
 
     fn choose_direction(&mut self, floor: u8) -> u8 {
         // Continue in current direction of travel if there are any further orders in that direction
-        if self.direction == DIRN_UP  && floor < self.elevator.num_floors - 1 {
+        if self.direction == DIRN_UP && floor < self.elevator.num_floors - 1 {
             for f in floor..self.elevator.num_floors {
                 if self.order_list[f as usize][CAB as usize]
                     || self.order_list[f as usize][HALL_UP as usize]
@@ -117,8 +117,7 @@ impl ElevatorFSM {
                     return DIRN_UP;
                 }
             }
-        }
-        else if self.direction == DIRN_DOWN && floor > 0 {
+        } else if self.direction == DIRN_DOWN && floor > 0 {
             for f in (0..floor).rev() {
                 if self.order_list[f as usize][CAB as usize]
                     || self.order_list[f as usize][HALL_DOWN as usize]
@@ -137,8 +136,7 @@ impl ElevatorFSM {
                     return DIRN_DOWN;
                 }
             }
-        }
-        else if self.direction == DIRN_DOWN && floor < self.elevator.num_floors - 1 {
+        } else if self.direction == DIRN_DOWN && floor < self.elevator.num_floors - 1 {
             for f in floor..self.elevator.num_floors {
                 if self.order_list[f as usize][CAB as usize]
                     || self.order_list[f as usize][HALL_UP as usize]
@@ -151,7 +149,7 @@ impl ElevatorFSM {
         // Start moving if necessary
         if self.direction == DIRN_STOP {
             if floor < self.elevator.num_floors - 1 {
-                for f in (floor+1)..(self.elevator.num_floors) {
+                for f in (floor + 1)..(self.elevator.num_floors) {
                     if self.order_list[f as usize][CAB as usize]
                         || self.order_list[f as usize][HALL_UP as usize]
                         || self.order_list[f as usize][HALL_DOWN as usize]
