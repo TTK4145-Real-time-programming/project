@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 enum Event {
     RequestReceived(u8, u8),
     FloorReached(u8),
+    DoorClosed,
     NoEvent,
 }
 
@@ -69,12 +70,16 @@ impl ElevatorFSM {
                 let next_direction = self.choose_direction(floor);
                 self.elevator.motor_direction(next_direction);
             }
+            Event::DoorClosed => {
+                let current_floor = self.elevator.floor_sensor().unwrap();
+                let next_direction = self.choose_direction(current_floor);
+                self.elevator.motor_direction(next_direction);
+            }
             Event::NoEvent => {
                 // Check if the door is open and the timer has elapsed
                 if let Some(timer) = self.door_timer {
                     if timer <= Instant::now() {
-                        self.door_open = false;
-                        self.door_timer = None;
+                        self.close_door();
                     }
                 }
             }
@@ -129,15 +134,34 @@ impl ElevatorFSM {
 
     fn complete_orders(&mut self, floor: u8) {
         // Remove cab orders at current floor.
-        self.order_list[floor as usize][CAB as usize] = false;
+        if self.order_list[floor as usize][CAB as usize] {
+            self.open_door();
+            self.order_list[floor as usize][CAB as usize] = false;
+        }
 
         // Remove hall orders at current floor if elevator is moving in the same direction.
-        if self.direction == DIRN_UP {
-            self.order_list[floor as usize][HALL_UP as usize] = false;
+        if self.direction == DIRN_UP && self.order_list[floor as usize][HALL_UP as usize] {
+            self.open_door();
             self.elevator.call_button_light(floor, HALL_UP, false);
-        } else if self.direction == DIRN_DOWN {
+            self.order_list[floor as usize][HALL_UP as usize] = false;
+        } else if self.direction == DIRN_DOWN && self.order_list[floor as usize][HALL_DOWN as usize]
+        {
+            self.open_door();
             self.order_list[floor as usize][HALL_DOWN as usize] = false;
             self.elevator.call_button_light(floor, HALL_DOWN, false);
         }
+    }
+
+    fn open_door(&mut self) {
+        self.elevator.door_light(true);
+        self.door_open = true;
+        self.door_timer = Some(Instant::now() + Duration::from_secs(3));
+    }
+
+    fn close_door(&mut self) {
+        self.elevator.door_light(false);
+        self.door_open = false;
+        self.door_timer = None;
+        self.handle_event(Event::DoorClosed);
     }
 }
