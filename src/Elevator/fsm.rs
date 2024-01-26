@@ -1,124 +1,143 @@
-/*
-* This file contains fsm for the elevator
-*/
+use driver_rust::elevio::elev::Elevator;
+use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
+use std::time::{Duration, Instant};
 
-use driver_rust::elevio::{elev, poll};
+enum Event {
+    RequestReceived(u8, u8),
+    FloorReached(u8),
+    NoEvent,
+}
 
-pub const N_FLOORS : usize = 4;
-pub const N_BUTTONS : usize = 3;
+pub struct ElevatorFSM {
+    elevator: Elevator,
+    order_list: Vec<Vec<bool>>,
+    direction: u8,
+    door_open: bool,
+    door_timer: Option<Instant>,
+}
 
-fn fsm_task(e: Elevator){
-    //Inittilize to defined state
-    fsm_init();
+impl ElevatorFSM {
+    pub fn new(addr: &str, num_floors: u8) -> Result<Self, std::io::Error> {
+        Ok(ElevatorFSM {
+            elevator: Elevator::init(addr, num_floors)?,
+            order_list: vec![vec![false; num_floors as usize]; num_floors as usize],
+            direction: DIRN_STOP,
+            door_open: false,
+            door_timer: None,
+        })
+    }
 
-    //Start FSM
-    loop{
-        match e.state {
-            State::Idle => {
-                FSM_idleUpdate();
+    pub fn run(&mut self) {
+        loop {
+            let event: Event = self.wait_for_event();
+            self.handle_event(event);
+        }
+    }
+
+    fn wait_for_event(&self) -> Event {
+        // Checks if the elevator has reached a floor.
+        if let Some(current_floor) = self.elevator.floor_sensor() {
+            return Event::FloorReached(current_floor);
+        }
+
+        // Checks if any buttons have been pressed.
+        for floor in 0..self.elevator.num_floors {
+            if self.elevator.call_button(floor, HALL_UP) {
+                return Event::RequestReceived(floor, HALL_UP);
             }
-            State::Moving => {
-                FSM_movingUpdate();
+            if self.elevator.call_button(floor, HALL_DOWN) {
+                return Event::RequestReceived(floor, HALL_DOWN);
             }
-            State::DoorOpen => {
-                FSM_doorOpenUpdate();
+            if self.elevator.call_button(floor, CAB) {
+                return Event::RequestReceived(floor, CAB);
+            }
+        }
+
+        // If no event is detected, you may want to sleep for a short duration.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        return Event::NoEvent;
+    }
+
+    fn handle_event(&mut self, event: Event) {
+        match event {
+            Event::RequestReceived(floor, request_type) => {
+                self.order_list[floor as usize][request_type as usize] = true;
+            }
+            Event::FloorReached(floor) => {
+                self.complete_orders(floor);
+                let next_direction = self.choose_direction(floor);
+                self.elevator.motor_direction(next_direction);
+            }
+            Event::NoEvent => {
+                // Check if the door is open and the timer has elapsed
+                if let Some(timer) = self.door_timer {
+                    if timer <= Instant::now() {
+                        self.door_open = false;
+                        self.door_timer = None;
+                    }
+                }
             }
         }
     }
-}
 
-
-
-// Starts all lights on elevator
-fn startAlllights(e: Elevetor){
-    for i in 0..e.requests.len() {
-        for j in 0..e.requests.len() {
-            elev::set_button_lamp(i, j, e.requests[i][j]);
+    fn choose_direction(&mut self, floor: u8) -> u8 {
+        // Continue up if there are orders above the elevator.
+        if self.direction == DIRN_UP {
+            for f in floor..self.elevator.num_floors {
+                if self.order_list[f as usize][CAB as usize]
+                    || self.order_list[f as usize][HALL_UP as usize]
+                    || self.order_list[f as usize][HALL_DOWN as usize]
+                {
+                    return DIRN_UP;
+                }
+            }
+            // If there are no orders above, check if there are orders below.
+            for f in (0..floor).rev() {
+                if self.order_list[f as usize][CAB as usize]
+                    || self.order_list[f as usize][HALL_UP as usize]
+                    || self.order_list[f as usize][HALL_DOWN as usize]
+                {
+                    return DIRN_DOWN;
+                }
+            }
         }
-    }
-}
-
-// Inittilize fsm
-fn fsm_init(){
-    let e = Elevator::init();
-    
-    e.current_floor = elev::floor_sensor();
-    while(e.current_floor == -1){
-        elev::motor_direction(elev::DIRN_UP);
-        e.current_floor = elev::floor_sensor();
-    }
-}
-
-fn FSM_idleUpdate(){
-
-    //Updating orders
-    setOrders(e);
-
-    if(elev::stop_button()){
-        elev::stop_button_light(true);
-        elev::motor_direction(elev::DIRN_STOP);
-
-        //TODO: Open door if at a floor
-    }
-
-    let mut newDirection = requests_chooseDirection(e);
-    
-    if(newDirection.direction != Direction::Stop){
-        e.direction = newDirection.direction;
-        e.state = State::Moving;
-
-        //Start motor
-        if(e.direction == Direction::Up){
-            elev::motor_direction(elev::DIRN_UP);
-        }
-        else if(e.direction == Direction::Down){
-            elev::motor_direction(elev::DIRN_DOWN);
+        // Continue down if there are orders below the elevator.
+        else if self.direction == DIRN_DOWN {
+            for f in (0..floor).rev() {
+                if self.order_list[f as usize][CAB as usize]
+                    || self.order_list[f as usize][HALL_UP as usize]
+                    || self.order_list[f as usize][HALL_DOWN as usize]
+                {
+                    return DIRN_DOWN;
+                }
+            }
+            // If there are no orders below, check if there are orders above.
+            for f in floor..self.elevator.num_floors {
+                if self.order_list[f as usize][CAB as usize]
+                    || self.order_list[f as usize][HALL_UP as usize]
+                    || self.order_list[f as usize][HALL_DOWN as usize]
+                {
+                    return DIRN_UP;
+                }
+            }
         }
 
-    }
-}
-
-fn FSM_doorOpenUpdate(){
-    //Updating orders
-    setOrders(e);
-    e.state = State::Idle;
-}
-
-fn FSM_movingUpdate(){
-    //Updating orders
-    setOrders(e);
-
-    //Check if elevator should stop
-    if(elev::floor_sensor() != -1){
-        e.current_floor = elev::floor_sensor();
-
-        elev::floor_indicator(e.current_floor);
-
-        if(elev::should_stop(e)){
-            // Stop motor
-            elev::motor_direction(elev::DIRN_STOP); 
-            
-            request_clear_current_floor(e);
-            
-            startAlllights(e);
-            
-            e.state = State::DoorOpen;
-            
-            elev::door_light(true);
-
-        }
-    }
-    else{
-        return;
+        // If there are no orders, stop.
+        return DIRN_STOP;
     }
 
-}
+    fn complete_orders(&mut self, floor: u8) {
+        // Remove cab orders at current floor.
+        self.order_list[floor as usize][CAB as usize] = false;
 
-//Find all orders
-fn setOrders(e: Elevator){
-    for i in 0..e.requests.len() {
-        for j in 0..e.requests.len() {
-            e.requests[i][j] = elev::get_button_signal(i, j);
+        // Remove hall orders at current floor if elevator is moving in the same direction.
+        if self.direction == DIRN_UP {
+            self.order_list[floor as usize][HALL_UP as usize] = false;
+            self.elevator.call_button_light(floor, HALL_UP, false);
+        } else if self.direction == DIRN_DOWN {
+            self.order_list[floor as usize][HALL_DOWN as usize] = false;
+            self.elevator.call_button_light(floor, HALL_DOWN, false);
         }
     }
 }

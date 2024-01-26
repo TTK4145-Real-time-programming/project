@@ -1,10 +1,11 @@
 /* Libraries */
-use driver_rust::elevio;
 
 /* Modules */
-mod Elevator;
+mod elevator;
 
-/* Main program */
-fn main() {
-    // Putting order list global untill we have a better way to do it
+/* Main */
+fn main() -> std::io::Result<()> {
+    let mut fsm = elevator::ElevatorFSM::new("localhost:127.0.0.1", 4)?;
+    fsm.run();
+    return Ok(());
 }
