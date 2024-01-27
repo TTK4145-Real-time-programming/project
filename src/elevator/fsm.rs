@@ -41,13 +41,13 @@ impl ElevatorFSM {
     fn wait_for_event(&mut self) -> Event {
         // Checks if any buttons have been pressed.
         for floor in 0..self.elevator.num_floors {
-            if self.elevator.call_button(floor, HALL_UP) {
+            if !self.order_list[floor as usize][HALL_UP as usize] && self.elevator.call_button(floor, HALL_UP) {
                 return Event::RequestReceived(floor, HALL_UP);
             }
-            if self.elevator.call_button(floor, HALL_DOWN) {
+            if !self.order_list[floor as usize][HALL_DOWN as usize] && self.elevator.call_button(floor, HALL_DOWN) {
                 return Event::RequestReceived(floor, HALL_DOWN);
             }
-            if self.elevator.call_button(floor, CAB) {
+            if !self.order_list[floor as usize][CAB as usize] && self.elevator.call_button(floor, CAB) {
                 return Event::RequestReceived(floor, CAB);
             }
         }
@@ -69,21 +69,22 @@ impl ElevatorFSM {
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::RequestReceived(floor, request_type) => {
-                if floor != self.floor.unwrap() {
-                    self.order_list[floor as usize][request_type as usize] = true;
-                    self.update_lights();
-                    self.print_order_list();
-                    if self.direction == DIRN_STOP {
-                        let next_direction = self.choose_direction(self.floor.unwrap());
-                        self.direction = next_direction;
-                        self.elevator.motor_direction(next_direction);
+                self.order_list[floor as usize][request_type as usize] = true;
+                self.update_lights();
+                self.print_order_list();
+                if self.direction == DIRN_STOP {
+                    let next_direction = self.choose_direction(self.floor.unwrap());
+                    self.direction = next_direction;
+                    self.elevator.motor_direction(next_direction);
+                    if next_direction == DIRN_STOP {
+                        self.complete_orders(floor);
                     }
                 }
             }
             Event::FloorReached(floor) => {
+                self.floor = Some(floor);
                 self.complete_orders(floor);
                 self.print_order_list();
-                self.floor = Some(floor);
                 if !self.door_open {
                     let next_direction = self.choose_direction(floor);
                     self.direction = next_direction;
@@ -91,15 +92,19 @@ impl ElevatorFSM {
                 }
             }
             Event::DoorClosed => {
-                let next_direction = self.choose_direction(self.floor.unwrap());
-                self.direction = next_direction;
-                self.elevator.motor_direction(next_direction);
+                self.complete_orders(self.floor.unwrap());
+                if !self.door_open {
+                    let next_direction = self.choose_direction(self.floor.unwrap());
+                    self.direction = next_direction;
+                    self.elevator.motor_direction(next_direction);
+                }
             }
             Event::NoEvent => {
                 // Check if the door is open and the timer has elapsed
-                // println!("No event at time {:?}", Instant::now());
                 if let Some(timer) = self.door_timer {
-                    if timer <= Instant::now() {
+                    if self.elevator.obstruction() {
+                        self.door_timer = Some(Instant::now() + Duration::from_secs(3));
+                    } else if timer <= Instant::now() {
                         self.close_door();
                     }
                 }
@@ -109,64 +114,23 @@ impl ElevatorFSM {
 
     fn choose_direction(&mut self, floor: u8) -> u8 {
         // Continue in current direction of travel if there are any further orders in that direction
-        if self.direction == DIRN_UP && floor < self.elevator.num_floors - 1 {
-            for f in floor..self.elevator.num_floors {
-                if self.order_list[f as usize][CAB as usize]
-                    || self.order_list[f as usize][HALL_UP as usize]
-                {
-                    return DIRN_UP;
-                }
-            }
-        } else if self.direction == DIRN_DOWN && floor > 0 {
-            for f in (0..floor).rev() {
-                if self.order_list[f as usize][CAB as usize]
-                    || self.order_list[f as usize][HALL_DOWN as usize]
-                {
-                    return DIRN_DOWN;
-                }
-            }
+        if self.has_orders_in_direction(floor, self.direction) {
+            return self.direction;
         }
 
         // Otherwise change direction if there are orders in the opposite direction
-        if self.direction == DIRN_UP && floor > 0 {
-            for f in (0..floor).rev() {
-                if self.order_list[f as usize][CAB as usize]
-                    || self.order_list[f as usize][HALL_DOWN as usize]
-                {
-                    return DIRN_DOWN;
-                }
-            }
-        } else if self.direction == DIRN_DOWN && floor < self.elevator.num_floors - 1 {
-            for f in floor..self.elevator.num_floors {
-                if self.order_list[f as usize][CAB as usize]
-                    || self.order_list[f as usize][HALL_UP as usize]
-                {
-                    return DIRN_UP;
-                }
-            }
+        if self.direction == DIRN_UP && self.has_orders_in_direction(floor, DIRN_DOWN) {
+            return DIRN_DOWN;
+        } else if self.direction == DIRN_DOWN && self.has_orders_in_direction(floor, DIRN_UP) {
+            return DIRN_UP;
         }
 
         // Start moving if necessary
         if self.direction == DIRN_STOP {
-            if floor < self.elevator.num_floors - 1 {
-                for f in (floor + 1)..(self.elevator.num_floors) {
-                    if self.order_list[f as usize][CAB as usize]
-                        || self.order_list[f as usize][HALL_UP as usize]
-                        || self.order_list[f as usize][HALL_DOWN as usize]
-                    {
-                        return DIRN_UP;
-                    }
-                }
-            }
-            if floor > 0 {
-                for f in (0..floor).rev() {
-                    if self.order_list[f as usize][CAB as usize]
-                        || self.order_list[f as usize][HALL_UP as usize]
-                        || self.order_list[f as usize][HALL_DOWN as usize]
-                    {
-                        return DIRN_DOWN;
-                    }
-                }
+            if self.has_orders_in_direction(floor, DIRN_UP) {
+                return DIRN_UP;
+            } else if self.has_orders_in_direction(floor, DIRN_DOWN) {
+                return DIRN_DOWN;
             }
         }
 
@@ -174,43 +138,77 @@ impl ElevatorFSM {
         return DIRN_STOP;
     }
 
+    fn has_orders_in_direction(&self, start_floor: u8, direction: u8) -> bool {
+        match direction {
+            DIRN_UP => {
+                for f in (start_floor+1)..self.elevator.num_floors {
+                    if self.order_list[f as usize][CAB as usize]
+                        || self.order_list[f as usize][HALL_UP as usize]
+                        || self.order_list[f as usize][HALL_DOWN as usize]
+                    {
+                        return true;
+                    }
+                }
+            }
+            DIRN_DOWN => {
+                for f in (0..start_floor).rev() {
+                    if self.order_list[f as usize][CAB as usize]
+                        || self.order_list[f as usize][HALL_UP as usize]
+                        || self.order_list[f as usize][HALL_DOWN as usize]
+                    {
+                        return true;
+                    }
+                }
+            }
+            _ => return false,
+        }
+
+        false
+    }
+
     fn complete_orders(&mut self, floor: u8) {
+        let is_top_floor = floor == self.elevator.num_floors - 1;
+        let is_bottom_floor = floor == 0;
+    
+        // Flag to determine if the door needs to be opened.
+        let mut should_open_door = false;
+    
         // Remove cab orders at current floor.
         if self.order_list[floor as usize][CAB as usize] {
-            self.open_door();
             self.order_list[floor as usize][CAB as usize] = false;
+            should_open_door = true;
         }
-
-        // Remove hall orders at current floor if elevator is moving in the same direction.
-        if self.direction == DIRN_UP && self.order_list[floor as usize][HALL_UP as usize] {
-            self.open_door();
+    
+        // Remove hall up orders.
+        if (self.direction == DIRN_UP || self.direction == DIRN_STOP || is_bottom_floor)
+            && self.order_list[floor as usize][HALL_UP as usize]
+        {
             self.elevator.call_button_light(floor, HALL_UP, false);
             self.order_list[floor as usize][HALL_UP as usize] = false;
-        } else if self.direction == DIRN_DOWN && self.order_list[floor as usize][HALL_DOWN as usize]
+            should_open_door = true;
+        }
+    
+        // Remove hall down orders.
+        if (self.direction == DIRN_DOWN || self.direction == DIRN_STOP || is_top_floor)
+            && self.order_list[floor as usize][HALL_DOWN as usize]
         {
-            self.open_door();
-            self.order_list[floor as usize][HALL_DOWN as usize] = false;
             self.elevator.call_button_light(floor, HALL_DOWN, false);
-        }
-
-        // Remove hall orders at the top
-        if floor == self.elevator.num_floors {
-            self.open_door();
             self.order_list[floor as usize][HALL_DOWN as usize] = false;
+            should_open_door = true;
         }
-
-        // Remove hall orders at the bottom
-        if floor == 0 {
+    
+        // Open door if needed and update lights.
+        if should_open_door {
             self.open_door();
-            self.order_list[floor as usize][HALL_UP as usize] = false;
         }
-
+    
+        // Update order indicators.
         self.update_lights();
     }
+    
 
     fn open_door(&mut self) {
         self.elevator.motor_direction(DIRN_STOP);
-        self.direction = DIRN_STOP;
         self.elevator.door_light(true);
         self.door_open = true;
         self.door_timer = Some(Instant::now() + Duration::from_secs(3));
