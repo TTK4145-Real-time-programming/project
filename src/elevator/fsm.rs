@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 enum Event {
     RequestReceived(u8, u8),
     FloorReached(u8),
+    StopPressed,
     DoorClosed,
     NoEvent,
 }
@@ -39,15 +40,26 @@ impl ElevatorFSM {
     }
 
     fn wait_for_event(&mut self) -> Event {
+        // Checks if stop button has been pressed.
+        if self.elevator.stop_button() {
+            return Event::StopPressed;
+        }
+
         // Checks if any buttons have been pressed.
         for floor in 0..self.elevator.num_floors {
-            if !self.order_list[floor as usize][HALL_UP as usize] && self.elevator.call_button(floor, HALL_UP) {
+            if !self.order_list[floor as usize][HALL_UP as usize]
+                && self.elevator.call_button(floor, HALL_UP)
+            {
                 return Event::RequestReceived(floor, HALL_UP);
             }
-            if !self.order_list[floor as usize][HALL_DOWN as usize] && self.elevator.call_button(floor, HALL_DOWN) {
+            if !self.order_list[floor as usize][HALL_DOWN as usize]
+                && self.elevator.call_button(floor, HALL_DOWN)
+            {
                 return Event::RequestReceived(floor, HALL_DOWN);
             }
-            if !self.order_list[floor as usize][CAB as usize] && self.elevator.call_button(floor, CAB) {
+            if !self.order_list[floor as usize][CAB as usize]
+                && self.elevator.call_button(floor, CAB)
+            {
                 return Event::RequestReceived(floor, CAB);
             }
         }
@@ -90,6 +102,15 @@ impl ElevatorFSM {
                     self.direction = next_direction;
                     self.elevator.motor_direction(next_direction);
                 }
+            }
+            Event::StopPressed => {
+                self.elevator.stop_button_light(true);
+                self.elevator.motor_direction(DIRN_STOP);
+                while self.elevator.stop_button() {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                self.elevator.stop_button_light(false);
+                self.elevator.motor_direction(self.direction);
             }
             Event::DoorClosed => {
                 self.complete_orders(self.floor.unwrap());
@@ -141,7 +162,7 @@ impl ElevatorFSM {
     fn has_orders_in_direction(&self, start_floor: u8, direction: u8) -> bool {
         match direction {
             DIRN_UP => {
-                for f in (start_floor+1)..self.elevator.num_floors {
+                for f in (start_floor + 1)..self.elevator.num_floors {
                     if self.order_list[f as usize][CAB as usize]
                         || self.order_list[f as usize][HALL_UP as usize]
                         || self.order_list[f as usize][HALL_DOWN as usize]
@@ -169,16 +190,16 @@ impl ElevatorFSM {
     fn complete_orders(&mut self, floor: u8) {
         let is_top_floor = floor == self.elevator.num_floors - 1;
         let is_bottom_floor = floor == 0;
-    
+
         // Flag to determine if the door needs to be opened.
         let mut should_open_door = false;
-    
+
         // Remove cab orders at current floor.
         if self.order_list[floor as usize][CAB as usize] {
             self.order_list[floor as usize][CAB as usize] = false;
             should_open_door = true;
         }
-    
+
         // Remove hall up orders.
         if (self.direction == DIRN_UP || self.direction == DIRN_STOP || is_bottom_floor)
             && self.order_list[floor as usize][HALL_UP as usize]
@@ -187,7 +208,7 @@ impl ElevatorFSM {
             self.order_list[floor as usize][HALL_UP as usize] = false;
             should_open_door = true;
         }
-    
+
         // Remove hall down orders.
         if (self.direction == DIRN_DOWN || self.direction == DIRN_STOP || is_top_floor)
             && self.order_list[floor as usize][HALL_DOWN as usize]
@@ -196,16 +217,15 @@ impl ElevatorFSM {
             self.order_list[floor as usize][HALL_DOWN as usize] = false;
             should_open_door = true;
         }
-    
+
         // Open door if needed and update lights.
         if should_open_door {
             self.open_door();
         }
-    
+
         // Update order indicators.
         self.update_lights();
     }
-    
 
     fn open_door(&mut self) {
         self.elevator.motor_direction(DIRN_STOP);
