@@ -12,7 +12,7 @@ env:
 jobs:
   check-format:
     name: Check Format
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - name: Install rustfmt
@@ -23,7 +23,7 @@ jobs:
   build-and-test:
     name: Build and Test
     needs: check-format
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - name: Build
