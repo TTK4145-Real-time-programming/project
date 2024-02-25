@@ -1,0 +1,4 @@
+[network]
+init_address = '8.8.8.53:80'
+msg_port = 19736
+peer_port = 19739
