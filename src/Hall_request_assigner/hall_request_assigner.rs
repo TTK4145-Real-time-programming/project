@@ -3,7 +3,7 @@ use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, H
 use std::time::{Duration, Instant};
 use elevator::fsm::Event;
 use elevator::fsm::ElevatorFSM;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 
@@ -27,14 +27,14 @@ fn getRequestType(pair: &BooleanPair) -> (u8, bool) {
         request_type = HALL_DOWN;
         request = true;
     }
-    return request_type, request;
+    return (request_type, request);
 }
 
 fn new_hall_requests(data: &hallRequests) {
     for (id, pairs) in data.O {
         if id = PREASSIGNED_ID { //trenger en måte å håndtere id-en til heisen på
             for pair in pairs {
-                request_type, request = getRequestType(pair);
+                (request_type, request) = getRequestType(pair);
                 floor = pairs.index(pair);
                 if request {
                     Event::RequestReceived(floor, request_type);
@@ -44,11 +44,8 @@ fn new_hall_requests(data: &hallRequests) {
     }
 }
 
-
-
-HallRequests = Vec<BooleanPair>;
-
 //struktur for hvordan informasjonen inn kan se ut. Da spesifikt for en heis.
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ElevatorState{
     behaviour: Behaviour,
     floor: Option<u8>,
@@ -56,14 +53,14 @@ pub struct ElevatorState{
     cabRequests: [bool; 4],
 }
 
-//selve strukturen for hvordan informasjonen inn kan se ut. Da for alle heiser.
+#[derive(Serialize, Deserialize, Debug)]
 type States = HashMap<String, ElevatorState>;
 
 //Dette er det som blir sendt over network.
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct elevator_data{
     version: u64,
-    hallRequests: HallRequests,
+    hallRequests: Vec<BooleanPair>,
     states: States,
 }
 
@@ -73,7 +70,7 @@ fn deserialise_global_orderList(json_data: &str) -> Result<elevator_data, serde_
 }
 
 
-fn update_global_orderlist(elevatorFSM: &ElevatorFSM, elevator_data) -> Result<String, serde_json::Error> {
+fn update_global_orderlist(elevatorFSM: &ElevatorFSM, elevator_data: &elevator_data) -> Result<String, serde_json::Error> {
     let mut states = elevator_data.states;
     let mut version = elevator_data.version;
     let mut changed = false;
@@ -91,7 +88,7 @@ fn update_global_orderlist(elevatorFSM: &ElevatorFSM, elevator_data) -> Result<S
     if changed {
         version += 1;
     }
-    let mut new_orderList = States{version: version, hallRequests: elevator_data.hallRequests, states};
+    let mut new_orderList = elevator_data{version: version, hallRequests: elevator_data.hallRequests, states};
     let mut new_elevator_data_json = serde_json::to_string(&new_orderList)?;
     return new_elevator_data_json;
 }

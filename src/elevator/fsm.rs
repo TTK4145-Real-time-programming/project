@@ -9,7 +9,7 @@ enum Event {
     DoorClosed,
     NoEvent,
 }
-
+#[derive(Clone, Copy)] // vet ikke hva dette gjør
 pub enum Behaviour {
     Idle,
     Moving,
@@ -32,7 +32,7 @@ impl ElevatorFSM {
             elevator: Elevator::init(addr, num_floors)?,
             order_list: vec![vec![false; 3]; num_floors as usize],
             floor: None,
-            direction: DIRN_STOP,
+            direction: DIRN_UP,
             door_open: false,
             door_timer: None,
             behaviour: Behaviour::Idle,
@@ -40,24 +40,24 @@ impl ElevatorFSM {
     }
 
     pub fn get_behaviour(&self) -> Behaviour {
-        self.behaviour;
+        return self.behaviour;
     }
 
-    pub fn get_cab_requests(&self) -> Vec<u8> {
+    pub fn get_cab_requests(&self) -> Vec<bool> {
         let mut cab_requests = Vec::new();
-        for floor in order_list.iter().enumerate() 
+        for floor in self.order_list.iter()
             {
-                cab_requests.push(floor.last());
+                cab_requests.push(floor[CAB as usize]);
             }
         return cab_requests;
     }
 
     pub fn get_direction(&self) -> u8 {
-        self.direction;
+        return self.direction;
     }
 
     pub fn get_floor(&self) -> Option<u8> {
-        self.floor;
+        return self.floor;
     }
 
     pub fn run(&mut self) {
