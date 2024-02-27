@@ -10,6 +10,12 @@ enum Event {
     NoEvent,
 }
 
+pub enum Behaviour {
+    Idle,
+    Moving,
+    DoorOpen,
+}
+
 pub struct ElevatorFSM {
     elevator: Elevator,
     order_list: Vec<Vec<bool>>,
@@ -17,6 +23,7 @@ pub struct ElevatorFSM {
     direction: u8,
     door_open: bool,
     door_timer: Option<Instant>,
+    behaviour: Behaviour,
 }
 
 impl ElevatorFSM {
@@ -28,7 +35,29 @@ impl ElevatorFSM {
             direction: DIRN_STOP,
             door_open: false,
             door_timer: None,
+            behaviour: Behaviour::Idle,
         })
+    }
+
+    pub fn get_behaviour(&self) -> Behaviour {
+        self.behaviour;
+    }
+
+    pub fn get_cab_requests(&self) -> Vec<u8> {
+        let mut cab_requests = Vec::new();
+        for floor in order_list.iter().enumerate() 
+            {
+                cab_requests.push(floor.last());
+            }
+        return cab_requests;
+    }
+
+    pub fn get_direction(&self) -> u8 {
+        self.direction;
+    }
+
+    pub fn get_floor(&self) -> Option<u8> {
+        self.floor;
     }
 
     pub fn run(&mut self) {
@@ -88,8 +117,10 @@ impl ElevatorFSM {
                     let next_direction = self.choose_direction(self.floor.unwrap());
                     self.direction = next_direction;
                     self.elevator.motor_direction(next_direction);
+                    self.behaviour = Behaviour::Moving;
                     if next_direction == DIRN_STOP {
                         self.complete_orders(floor);
+                        self.behaviour = Behaviour::Idle;
                     }
                 }
             }
@@ -101,16 +132,19 @@ impl ElevatorFSM {
                     let next_direction = self.choose_direction(floor);
                     self.direction = next_direction;
                     self.elevator.motor_direction(next_direction);
+                    self.behaviour = Behaviour::Moving;
                 }
             }
             Event::StopPressed => {
                 self.elevator.stop_button_light(true);
                 self.elevator.motor_direction(DIRN_STOP);
+                self.behaviour = Behaviour::Idle;
                 while self.elevator.stop_button() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
                 self.elevator.stop_button_light(false);
                 self.elevator.motor_direction(self.direction);
+                self.behaviour = Behaviour::Moving; //mulig bug hvis self.direction er dirn_stop fra før kan løses med en if setning
             }
             Event::DoorClosed => {
                 self.complete_orders(self.floor.unwrap());
@@ -118,6 +152,7 @@ impl ElevatorFSM {
                     let next_direction = self.choose_direction(self.floor.unwrap());
                     self.direction = next_direction;
                     self.elevator.motor_direction(next_direction);
+                    self.behaviour = Behaviour::Moving;
                 }
             }
             Event::NoEvent => {
@@ -228,6 +263,7 @@ impl ElevatorFSM {
     }
 
     fn open_door(&mut self) {
+        self.behaviour = Behaviour::DoorOpen;
         self.elevator.motor_direction(DIRN_STOP);
         self.elevator.door_light(true);
         self.door_open = true;
