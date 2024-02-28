@@ -1,4 +1,4 @@
 [network]
-init_address = '8.8.8.53:80'
-msg_port = 19736
-peer_port = 19739
+id_gen_address = "8.8.8.8:53"
+msg_port = 19734
+peer_port = 19738

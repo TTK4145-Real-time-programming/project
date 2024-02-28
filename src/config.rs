@@ -8,7 +8,7 @@ pub struct Config {
 
 #[derive(Deserialize)]
 pub struct NetworkConfig {
-    pub init_address: String,
+    pub id_gen_address: String,
     pub msg_port: u16,
     pub peer_port: u16,
 }
