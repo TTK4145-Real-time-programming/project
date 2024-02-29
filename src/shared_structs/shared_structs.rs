@@ -39,14 +39,4 @@ impl ElevatorData {
             states: HashMap::new(),
         }
     }
-
-    pub fn update_state(&mut self, id: String, state: ElevatorState) {
-        self.states.insert(id, state);
-    }
-
-    pub fn update_data(&mut self, data: ElevatorData) {
-        self.version = data.version;
-        self.hall_requests = data.hall_requests;
-        self.states = data.states;
-    }
 }

@@ -1,6 +1,6 @@
 /* 3rd party libraries */
 use crossbeam_channel as cbc;
-use std::sync::{Arc, Mutex};
+use core::time;
 use std::thread::*;
 
 /* Custom libraries */
@@ -19,6 +19,11 @@ fn main() -> std::io::Result<()> {
     // Load the configuration
     let config = config::load_config();
 
+    // Initialize channels
+    let (hall_request_tx, hall_request_rx) = cbc::unbounded::<Vec<Vec<bool>>>();
+    let (complete_order_tx, complete_order_rx) = cbc::unbounded::<(u8, u8)>();
+    let (state_tx, state_rx) = cbc::unbounded::<ElevatorState>();
+
     // Create the elevator state
     let n_floors = config.elevator.n_floors.clone();
     let elevator_data = ElevatorData::new(n_floors);
@@ -28,10 +33,19 @@ fn main() -> std::io::Result<()> {
     let id = network.id.clone();
 
     // Start the elevator module
-    let elevator = elevator::ElevatorFSM::new(&config.elevator)?;
-    
+    let mut elevator_fsm = elevator::ElevatorFSM::new(
+        &config.elevator,
+        hall_request_rx,
+        complete_order_tx,
+        state_tx,
+    )?;
+
+    spawn(move || loop {
+        elevator_fsm.run()
+    });
+
     // To Chris
-    
+
     //elevator.hall_request_tx
     //elevator.state_rx
     //elevator.complete_order_rx
@@ -41,10 +55,7 @@ fn main() -> std::io::Result<()> {
     //network.custom_data_recv_rx
 
     // elevator_data
-
-    // let elevator = Elevator::init(&config.driver_address, config.n_floors)?;
-
-    
+    // let elevator_driver = elevator_fsm.elevator_driver.clone();
 
     // Din greien(network.riktig_kanal)
 
