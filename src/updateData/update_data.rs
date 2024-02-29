@@ -1,13 +1,28 @@
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
 use std::collections::HashMap;
+use driver_rust::elevio::elev::Elevator;
 use serde::{Deserialize, Serialize};
+use std::sync::mpsc;
+use std::thread;
+use std::sync::{Arc, Mutex};
 use crate::elevator::fsm::Behaviour;
 use crate::elevator::fsm::ElevatorFSM;
+
+use crate::config;
 
 /*  TODO:
     Alle data structure (structs) should be in own file?
     This data structure WILL be used by this module AND Netowrk
     This file should only contain Updatdata related implementation
+*/
+
+/*
+    to run the rquest assigner. Call:
+    let assigner = RequestAssigner::init(....)
+    let assigner = Arc::new(Mutex::new(assigner))
+    RequestAssigner::run(assigner.clone())
+
+    This will ensure thread safty when having button and "main"-Request_Assigner thread running
 */
 
 
@@ -93,70 +108,126 @@ impl ElevatorData{
 
 
 // Request assigner 
-//TODO: update_data creates ElevatorFSM and puts it in thread(?) -> Then it will have full ownership <-- More clean approach(?)
-pub struct RequestAssigner<'a>{
-    num_floors: u8,
-    //event: GlobalEvent,
-    //merge_conflict: MergeEvent,
-    elevator_data: ElevatorData,
-    local_elevator: &'a ElevatorFSM,
+pub struct RequestAssigner{
+    elevator_data: ElevatorData, 
+    local_elevator: Elevator,
     local_id: String,
     
+    // Button thread variables
+    button_tx: mpsc::Sender<GlobalEvent>,
+    button_rx: Arc<Mutex<mpsc::Receiver<GlobalEvent>>>,
 }
 
 
-impl <'a>RequestAssigner<'a>{
+impl RequestAssigner{
     //Initilizing Request assigner strcuct and puts it in a thread (?)
-    pub fn init(floors: u8, id: String, local_elevator: & 'a ElevatorFSM) -> Result<Self, std::io::Error>{
-        // Initilizing the order book with local elevator
-        let elevator_data = ElevatorData::init(floors, id.clone(), local_elevator)?;
+    pub fn init(elevator_data: ElevatorData, local_id: String) -> Result<Self, std::io::Error>{
         
-        // Contructing Request assigner
+        //Making instance of elevator to read buttons
+        let config = config::load_config();
+        let elevator = Elevator::init(&config.elevator.driver_address, config.elevator.n_floors)?;
+
+        //Making channel for button thread
+        let (button_tx, button_rx) = mpsc::channel::<GlobalEvent>();
+        let button_rx_shared = Arc::new(Mutex::new(button_rx));
+        
         Ok(RequestAssigner{
-            //event: GlobalEvent::NoEvent,
-            //merge_conflict: MergeEvent::NoEvent,
+            //num_floors: num_floors,
             elevator_data: elevator_data,
-            local_elevator: local_elevator,
-            num_floors: floors,
-            local_id: id,
+            local_elevator: elevator,
+            local_id: local_id,
+
+            //Button thread related atributes
+            button_tx: button_tx,
+            button_rx: button_rx_shared,
         })
     }
     
     // ---- main functions -----
-    
-    pub fn wait_for_event(&self) -> GlobalEvent{
 
+    //Main run function
+    pub fn run(assigner: Arc<Mutex<Self>>) { 
+        //Spawning the button-thread to listen for button calls
+        let tx_clone = {
+            let locked_assigner = assigner.lock().unwrap();
+            locked_assigner.button_tx.clone()
+        };
+
+        thread::spawn(move || {
+            loop{
+                let event = {
+                    let locked_assigner = assigner.lock().unwrap();
+                    locked_assigner.wait_for_button()
+
+                    // TODO: Slow down this loop perhaps??
+                };
+
+                match event {
+                    GlobalEvent::NoEvent => {
+                        //Do nothing
+                    },
+                    //If other event transmit it
+                    _ => {
+                        tx_clone.send(event).expect("Failed to send event to Rewuest assigner thread")
+                    }
+                }
+            }
+        });
+
+        // Add the wait_for_event here:
+            // listen to three channels
+            // Handle this based on the events
+    }
+
+
+
+    // ---- Extra functions -----
+
+    pub fn send_to_fsm(&self, order_list: Vec<Vec<bool>>){
+
+    }
+
+    pub fn wait_for_event(&self){
+        // Listen to:
+            //network
+                //peer
+                //data
+            
+            //Fsm
+
+            //buttons
+
+        //based on this
+          //merge/mergeconflict -> JSON -> HRA -> Network
+          //Set lights
+          //send to FSM
+    }
+    
+    pub fn wait_for_button(&self) -> GlobalEvent{
         // Checking for all button presses and if they are already handled
-        for floor in 0..self.num_floors {
+        for floor in 0..self.local_elevator.num_floors {
             //Checking cab buttons 
             if !self.check_cab_button(floor) 
-            && self.local_elevator.get_elevator().call_button(floor, CAB)
+            && self.local_elevator.call_button(floor, CAB)
             {
                 return GlobalEvent::newButtonRequest(floor, CAB);
             }
 
             //Checking hall buttons
             if !self.check_hall_button(floor, HALL_UP) 
-            && self.local_elevator.get_elevator().call_button(floor, HALL_UP)
+            && self.local_elevator.call_button(floor, HALL_UP)
             {
                 return GlobalEvent::newButtonRequest(floor, HALL_UP);
             }
             if !self.check_hall_button(floor, HALL_DOWN) 
-            && self.local_elevator.get_elevator().call_button(floor, HALL_DOWN)
+            && self.local_elevator.call_button(floor, HALL_DOWN)
             {
                 return GlobalEvent::newButtonRequest(floor, HALL_DOWN);
             }
         }
-        
-        //Check if package from netowrk is newer than local ElevatorData
-        
 
         return GlobalEvent::NoEvent;
     }
-
-
-
-    // ---- Extra functions -----
 
     //Checks if cab button is already pressed (returns false if not pressed)
     fn check_cab_button(&self, floor: u8) -> bool{
@@ -171,7 +242,7 @@ impl <'a>RequestAssigner<'a>{
                     return true;
                 }
             },
-            // This should NEVER happen
+            // This should NEVER happen, implmented for cosmic bit-flip
             None => {
                 print!("Elevator with id: {} not found", self.local_id);
                 return false;
