@@ -39,6 +39,10 @@ impl ElevatorFSM {
         })
     }
 
+    pub fn get_elevator(&self) -> &Elevator{
+        return &self.elevator;
+    }
+
     pub fn get_behaviour(&self) -> Behaviour {
         return self.behaviour;
     }

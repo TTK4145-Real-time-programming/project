@@ -1,3 +1,3 @@
-pub mod updateData;
+pub mod update_data;
 
-pub use updateData::UpdateData;
+pub use update_data::RequestAssigner;

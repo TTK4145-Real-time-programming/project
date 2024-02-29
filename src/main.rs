@@ -5,6 +5,7 @@ use std::thread::*;
 mod elevator;
 mod network;
 mod config;
+mod updateData;
 
 /* Main */
 fn main() -> std::io::Result<()> {
