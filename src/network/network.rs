@@ -4,30 +4,22 @@ use std::process;
 use std::thread::*;
 
 use crate::config::NetworkConfig;
+use crate::shared_structs::ElevatorData;
 use crossbeam_channel as cbc;
 use network_rust::udpnet;
 
-// Data types to be sent on the network must derive traits for serialization
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct CustomDataType {
-    message: String,
-    iteration: u64,
-}
-
 pub struct Network {
     pub id: String,
-    pub peer_tx_enable_tx: cbc::Sender<bool>,
-    pub custom_data_send_tx: cbc::Sender<CustomDataType>,
-    pub custom_data_recv_rx: cbc::Receiver<CustomDataType>,
-    pub peer_update_rx: cbc::Receiver<udpnet::peers::PeerUpdate>,
 }
 
 impl Network {
-    pub fn new(config: &NetworkConfig) -> std::io::Result<Network> {
-        let (peer_tx_enable_tx, peer_tx_enable_rx) = cbc::unbounded::<bool>();
-        let (peer_update_tx, peer_update_rx) = cbc::unbounded::<udpnet::peers::PeerUpdate>();
-        let (custom_data_send_tx, custom_data_send_rx) = cbc::unbounded::<CustomDataType>();
-        let (custom_data_recv_tx, custom_data_recv_rx) = cbc::unbounded::<CustomDataType>();
+    pub fn new(
+        config: &NetworkConfig,
+        custom_data_send_rx: cbc::Receiver<ElevatorData>,
+        custom_data_recv_tx: cbc::Sender<ElevatorData>,
+        peer_update_tx: cbc::Sender<udpnet::peers::PeerUpdate>,
+        peer_tx_enable_rx: cbc::Receiver<bool>,
+    ) -> std::io::Result<Network> {
 
         let id = if env::args().len() > 1 {
             env::args().nth(1).unwrap()
@@ -74,12 +66,6 @@ impl Network {
             }
         });
 
-        Ok(Network {
-            id: id,
-            peer_tx_enable_tx: peer_tx_enable_tx,
-            custom_data_send_tx: custom_data_send_tx,
-            custom_data_recv_rx: custom_data_recv_rx,
-            peer_update_rx: peer_update_rx,
-        })
+        Ok(Network { id: id })
     }
 }

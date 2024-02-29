@@ -1,6 +1,6 @@
 /* 3rd party libraries */
 use crossbeam_channel as cbc;
-use core::time;
+use network_rust::udpnet;
 use std::thread::*;
 
 /* Custom libraries */
@@ -19,17 +19,31 @@ fn main() -> std::io::Result<()> {
     // Load the configuration
     let config = config::load_config();
 
+    // Current bug:
+    // When the elevator fsm is started, a "connection refused" panic
+    // is thrown in the network module.
+
     // Initialize channels
     let (hall_request_tx, hall_request_rx) = cbc::unbounded::<Vec<Vec<bool>>>();
     let (complete_order_tx, complete_order_rx) = cbc::unbounded::<(u8, u8)>();
     let (state_tx, state_rx) = cbc::unbounded::<ElevatorState>();
+    let (data_send_tx, data_send_rx) = cbc::unbounded::<ElevatorData>();
+    let (data_recv_tx, data_recv_rx) = cbc::unbounded::<ElevatorData>();
+    let (peer_update_tx, peer_update_rx) = cbc::unbounded::<udpnet::peers::PeerUpdate>();
+    let (peer_tx_enable_tx, peer_tx_enable_rx) = cbc::unbounded::<bool>();
 
     // Create the elevator state
     let n_floors = config.elevator.n_floors.clone();
     let elevator_data = ElevatorData::new(n_floors);
 
     // Start the network module
-    let network = Network::new(&config.network)?;
+    let network = Network::new(
+        &config.network,
+        data_send_rx,
+        data_recv_tx,
+        peer_update_tx,
+        peer_tx_enable_rx,
+    )?;
     let id = network.id.clone();
 
     // Start the elevator module
@@ -40,37 +54,28 @@ fn main() -> std::io::Result<()> {
         state_tx,
     )?;
 
+    // Clone for coordinator
+    let elevator_driver = elevator_fsm.elevator_driver.clone();
+
     spawn(move || loop {
         elevator_fsm.run()
     });
 
-    // To Chris
 
-    //elevator.hall_request_tx
-    //elevator.state_rx
-    //elevator.complete_order_rx
+    // Things Chris must use:
 
-    //network.data_send_tx
-    //network.peer_update_rx
-    //network.custom_data_recv_rx
+    hall_request_tx;
+    state_rx;
+    complete_order_rx;
 
-    // elevator_data
-    // let elevator_driver = elevator_fsm.elevator_driver.clone();
+    data_send_tx;
+    peer_update_rx;
+    data_recv_rx;
+    peer_tx_enable_tx; // Only if you want to enable/disable the peer discovery, not necessary
 
-    // Din greien(network.riktig_kanal)
-
-    loop {
-        cbc::select! {
-            recv(network.peer_update_rx) -> a => {
-                let update = a.unwrap();
-                println!("{:#?}", update);
-            }
-            recv(network.custom_data_recv_rx) -> a => {
-                let cd = a.unwrap();
-                println!("{:#?}", cd);
-            }
-        }
-    }
+    elevator_data;
+    elevator_driver;
+    id;
 
     return Ok(());
 }
