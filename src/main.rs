@@ -1,31 +1,64 @@
-/* Libraries */
+/* 3rd party libraries */
+use crossbeam_channel as cbc;
+use std::sync::{Arc, Mutex};
 use std::thread::*;
 
+/* Custom libraries */
+use network::Network;
+use shared_structs::ElevatorData;
+use shared_structs::ElevatorState;
+
 /* Modules */
+mod config;
 mod elevator;
 mod network;
-mod config;
+mod shared_structs;
 
 /* Main */
 fn main() -> std::io::Result<()> {
-
     // Load the configuration
     let config = config::load_config();
 
-    // Start the elevator module
-    // let mut fsm = elevator::ElevatorFSM::new("localhost:15657", 4)?;
-    // fsm.run();
+    // Create the elevator state
+    let n_floors = config.elevator.n_floors.clone();
+    let elevator_data = ElevatorData::new(n_floors);
 
     // Start the network module
-    spawn(move || {
-        if let Err(e) = network::network(&config.network) {
-            // Handle the error as needed, e.g., log it or panic
-            panic!("Network initialization failed: {}", e);
-        }
-    });
+    let network = Network::new(&config.network)?;
+    let id = network.id.clone();
+
+    // Start the elevator module
+    let elevator = elevator::ElevatorFSM::new(&config.elevator)?;
+    
+    // To Chris
+    
+    //elevator.hall_request_tx
+    //elevator.state_rx
+    //elevator.complete_order_rx
+
+    //network.data_send_tx
+    //network.peer_update_rx
+    //network.custom_data_recv_rx
+
+    // elevator_data
+
+    // let elevator = Elevator::init(&config.driver_address, config.n_floors)?;
+
+    
+
+    // Din greien(network.riktig_kanal)
 
     loop {
-        sleep(std::time::Duration::from_secs(1));
+        cbc::select! {
+            recv(network.peer_update_rx) -> a => {
+                let update = a.unwrap();
+                println!("{:#?}", update);
+            }
+            recv(network.custom_data_recv_rx) -> a => {
+                let cd = a.unwrap();
+                println!("{:#?}", cd);
+            }
+        }
     }
 
     return Ok(());
