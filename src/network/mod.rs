@@ -1,3 +1,3 @@
 pub mod network;
 
-pub use network::network;
+pub use network::Network;
