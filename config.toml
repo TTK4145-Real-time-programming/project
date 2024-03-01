@@ -4,5 +4,9 @@ msg_port = 19734
 peer_port = 19738
 
 [elevator]
+door_open_time = 3000
+
+[hardware]
 n_floors = 4
 driver_address = "localhost:15657"
+hw_thread_sleep_time = 10

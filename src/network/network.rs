@@ -20,7 +20,6 @@ impl Network {
         peer_update_tx: cbc::Sender<udpnet::peers::PeerUpdate>,
         peer_tx_enable_rx: cbc::Receiver<bool>,
     ) -> std::io::Result<Network> {
-
         let id = if env::args().len() > 1 {
             env::args().nth(1).unwrap()
         } else {
