@@ -1,11 +1,34 @@
 use crate::config::ElevatorConfig;
 use crate::shared_structs::ElevatorState;
 use crossbeam_channel as cbc;
-use driver_rust::elevio::elev::Elevator;
-use driver_rust::elevio::elev::{DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
-use std::sync::{Arc, Mutex};
-use std::thread::spawn;
+use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
 use std::time::{Duration, Instant};
+
+/**
+ * Manages elevator operation logic.
+ *
+ * The `ElevatorFSM` (Finite State Machine) controls the elevator's behavior by processing events such as floor requests, 
+ * door operations, and sensor inputs. It communicates with elevator hardware and coordinator thread.
+ *
+ * # Fields
+ * - `hw_motor_direction_tx`:   Sends motor direction commands (up, down, stop).
+ * - `hw_floor_sensor_rx`:      Receives current floor updates from the elevator sensor.
+ * - `hw_door_light_tx`:        Controls the door's open/close light indicator.
+ * - `hw_obstruction_rx`:       Receives obstruction detection signals (e.g., if something blocks the door).
+ * - `hw_stop_button_rx`:       Receives stop button press signals.
+ * - `hw_cab_request_rx`:       Receives cabin request inputs (e.g., buttons pressed inside the elevator).
+ * - `hall_request_rx`:         Receives hall request inputs (e.g., buttons pressed on each floor).
+ * - `complete_order_tx`:       Sends notifications when a request is completed.
+ * - `state_tx`:                Broadcasts the current state of the elevator (e.g., current floor, direction).
+ * - `hall_requests`:           Stores the state of hall requests (up/down) for each floor.
+ * - `state`:                   Maintains the current state of the elevator (e.g., floor, direction).
+ * - `n_floors`:                The total number of floors serviced by the elevator.
+ * - `door_open`:               Indicates whether the elevator door is currently open.
+ * - `obstruction`:             Indicates if there is an obstruction detected by the elevator.
+ * - `door_open_time`:          Configurable time for how long the door remains open.
+ * - `door_timer`:              Timer used to track door open duration.
+ *
+ */
 
 enum Event {
     FloorReached(u8),
@@ -14,11 +37,15 @@ enum Event {
 }
 
 pub struct ElevatorFSM {
-    // Hardware driver
-    pub elevator_driver: Arc<Mutex<Elevator>>,
+    // Hardware channels
+    hw_motor_direction_tx: cbc::Sender<u8>,
+    hw_floor_sensor_rx: cbc::Receiver<u8>,
+    hw_door_light_tx: cbc::Sender<bool>,
+    hw_obstruction_rx: cbc::Receiver<bool>,
+    hw_stop_button_rx: cbc::Receiver<bool>,
+    hw_cab_request_rx: cbc::Receiver<Vec<bool>>,
 
-    // Channels
-    door_open_tx: Option<cbc::Sender<()>>,
+    // Coordinator channels
     hall_request_rx: cbc::Receiver<Vec<Vec<bool>>>,
     complete_order_tx: cbc::Sender<(u8, u8)>,
     state_tx: cbc::Sender<ElevatorState>,
@@ -28,101 +55,109 @@ pub struct ElevatorFSM {
     state: ElevatorState,
     n_floors: u8,
     door_open: bool,
+    obstruction: bool,
+    door_open_time: u64,
+    door_timer: Instant,
 }
 
 impl ElevatorFSM {
     pub fn new(
         config: &ElevatorConfig,
+        hw_motor_direction_tx: cbc::Sender<u8>,
+        hw_floor_sensor_rx: cbc::Receiver<u8>,
+        hw_door_light_tx: cbc::Sender<bool>,
+        hw_obstruction_rx: cbc::Receiver<bool>,
+        hw_stop_button_rx: cbc::Receiver<bool>,
+        hw_cab_request_rx: cbc::Receiver<Vec<bool>>,
         hall_request_rx: cbc::Receiver<Vec<Vec<bool>>>,
         complete_order_tx: cbc::Sender<(u8, u8)>,
         state_tx: cbc::Sender<ElevatorState>,
-    ) -> std::io::Result<ElevatorFSM> {
-        // Initialize hardware driver
-        let elevator_driver = Arc::new(Mutex::new(Elevator::init(
-            &config.driver_address,
-            config.n_floors,
-        )?));
-
-        Ok(ElevatorFSM {
-            elevator_driver,
+    ) -> ElevatorFSM {
+        ElevatorFSM {
+            hw_motor_direction_tx,
+            hw_floor_sensor_rx,
+            hw_door_light_tx,
+            hw_obstruction_rx,
+            hw_stop_button_rx,
+            hw_cab_request_rx,
+            hall_request_rx,
+            complete_order_tx,
+            state_tx,
             hall_requests: vec![vec![false; 2]; config.n_floors as usize],
             state: ElevatorState::new(config.n_floors),
             n_floors: config.n_floors,
             door_open: false,
-            door_open_tx: None,
-            hall_request_rx,
-            complete_order_tx,
-            state_tx,
-        })
+            obstruction: false,
+            door_open_time: config.door_open_time,
+            door_timer: Instant::now(),
+        }
     }
 
-    pub fn run(&mut self) {
-        // Channels
-        let (floor_tx, floor_rx) = cbc::unbounded::<u8>();
-        let (door_open_tx, door_open_rx) = cbc::unbounded::<()>();
-        let (door_closed_tx, door_closed_rx) = cbc::unbounded::<()>();
-        self.door_open_tx = Some(door_open_tx);
-
-        // Floor sensor thread
-        let elevator_driver = self.elevator_driver.clone();
-        spawn(move || loop {
-            {
-                let elevator_driver = elevator_driver.lock().unwrap();
-                if let Some(floor_sensor) = elevator_driver.floor_sensor() {
-                    floor_tx.send(floor_sensor).unwrap();
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        });
-
-        // Door thread
-        let elevator_driver = self.elevator_driver.clone();
-        spawn(move || loop {
-            door_open_rx.recv().unwrap();
-            let mut door_timer = Instant::now() + Duration::from_secs(3);
-            loop {
-                {
-                    let elevator_driver = elevator_driver.lock().unwrap();
-                    if elevator_driver.obstruction() {
-                        door_timer = Instant::now() + Duration::from_secs(3);
-                    } else if door_timer <= Instant::now() {
-                        door_closed_tx.send(()).unwrap();
-                        break;
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-        });
-
+    pub fn run(mut self) {
         // Find the initial floor
-        let elevator_driver = self.elevator_driver.clone();
-        {
-            let elevator_driver = elevator_driver.lock().unwrap();
-            if let Some(floor_sensor) = elevator_driver.floor_sensor() {
-                self.state.floor = floor_sensor;
-            } else {
-                elevator_driver.motor_direction(DIRN_UP);
-            }
-        }
+        let _ = self.hw_motor_direction_tx.send(DIRN_DOWN);
 
         // Main loop
         loop {
             cbc::select! {
-                recv(floor_rx) -> floor => {
-                    self.handle_event(Event::FloorReached(floor.unwrap()));
-                }
-                recv(door_closed_rx) -> _ => {
-                    self.handle_event(Event::DoorClosed);
+                recv(self.hw_floor_sensor_rx) -> floor => {
+                    match floor {
+                        Ok(f) => self.handle_event(Event::FloorReached(f)),
+                        Err(e) => eprintln!("Error receiving from hw_floor_sensor_rx: {}", e),
+                    }
                 }
                 recv(self.hall_request_rx) -> hall_requests => {
-                    self.hall_requests = hall_requests.unwrap();
+                    match hall_requests {
+                        Ok(requests) => {
+                            self.hall_requests = requests;
+                            if self.state.behaviour == "idle" {
+                                let next_direction = self.choose_direction(self.state.floor);
+                                if next_direction != self.state.direction {
+                                    self.state.direction = next_direction;
+                                    let _ = self.hw_motor_direction_tx.send(next_direction);
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("Error receiving from hall_request_rx: {}", e),
+                    }
+                }
+                recv(self.hw_cab_request_rx) -> cab_requests => {
+                    match cab_requests {
+                        Ok(requests) => {
+                            self.state.cab_requests = requests;
+                            if self.state.behaviour == "idle" {
+                                let next_direction = self.choose_direction(self.state.floor);
+                                if next_direction != self.state.direction {
+                                    self.state.direction = next_direction;
+                                    let _ = self.hw_motor_direction_tx.send(next_direction);
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("Error receiving from hw_cab_request_rx: {}", e),
+                    }
+                }
+                recv(self.hw_stop_button_rx) -> stop_button => {
+                    match stop_button {
+                        Ok(true) => self.handle_event(Event::StopPressed),
+                        Ok(false) => (),
+                        Err(e) => eprintln!("Error receiving from hw_stop_button_rx: {}", e),
+                    }
+                }
+                recv(self.hw_obstruction_rx) -> obstruction => {
+                    match obstruction {
+                        Ok(value) => self.obstruction = value,
+                        Err(e) => eprintln!("Error receiving from hw_obstruction_rx: {}", e),
+                    }
                 }
                 default(Duration::from_millis(100)) => {
-                    let next_dir = self.choose_direction(self.state.floor);
-                    if next_dir != self.state.direction {
-                        self.state.direction = next_dir;
-                        self.elevator_driver.lock().unwrap().motor_direction(next_dir);
-                        self.state_tx.send(self.state.clone()).unwrap();
+                    if self.door_open {
+                        if self.obstruction {
+                            self.door_timer = Instant::now() + Duration::from_secs(self.door_open_time);
+                        } else if self.door_timer <= Instant::now() {
+                            let _ = self.hw_door_light_tx.send(false);
+                            self.door_open = false;
+                            self.handle_event(Event::DoorClosed);
+                        }
                     }
                 }
             }
@@ -139,34 +174,17 @@ impl ElevatorFSM {
 
                 // No orders at this floor, find next direction
                 if !self.door_open {
-                    let next_direction = self.choose_direction(self.state.floor);
-                    if next_direction != self.state.direction {
-                        self.state.direction = next_direction;
-                        self.elevator_driver
-                            .lock()
-                            .unwrap()
-                            .motor_direction(next_direction);
-                    }
+                    self.state.direction = self.choose_direction(self.state.floor);
+                    let _ = self.hw_motor_direction_tx.send(self.state.direction);
                 }
             }
             Event::StopPressed => {
-                let elevator_driver = self.elevator_driver.lock().unwrap();
-                elevator_driver.stop_button_light(true);
-                elevator_driver.motor_direction(DIRN_STOP);
-                while elevator_driver.stop_button() {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-                elevator_driver.stop_button_light(false);
-                elevator_driver.motor_direction(self.state.direction);
+                // TBA ;)
             }
             Event::DoorClosed => {
                 self.complete_orders(self.state.floor);
-                let next_direction = self.choose_direction(self.state.floor);
-                self.state.direction = next_direction;
-                self.elevator_driver
-                    .lock()
-                    .unwrap()
-                    .motor_direction(next_direction);
+                self.state.direction = self.choose_direction(self.state.floor);
+                let _ = self.hw_motor_direction_tx.send(self.state.direction);
             }
         }
     }
@@ -239,16 +257,13 @@ impl ElevatorFSM {
         // Remove cab orders at current floor.
         if self.state.cab_requests[floor as usize] {
             // Open the door
-            self.door_open_tx
-                .as_ref()
-                .expect("Door channel not found!")
-                .send(())
-                .unwrap();
+            let _ = self.hw_door_light_tx.send(true);
+            let _ = self.hw_motor_direction_tx.send(DIRN_STOP);
             self.door_open = true;
 
             // Update the state and send it to the coordinator
             self.state.cab_requests[floor as usize] = false;
-            self.state_tx.send(self.state.clone()).unwrap();
+            self.complete_order_tx.send((floor, CAB)).unwrap();
         }
 
         // Remove hall up orders.
@@ -256,11 +271,8 @@ impl ElevatorFSM {
             && self.hall_requests[floor as usize][HALL_UP as usize]
         {
             // Open the door
-            self.door_open_tx
-                .as_ref()
-                .expect("Door channel not found!")
-                .send(())
-                .unwrap();
+            let _ = self.hw_door_light_tx.send(true);
+            let _ = self.hw_motor_direction_tx.send(DIRN_STOP);
             self.door_open = true;
 
             // Update the state and send it to the coordinator
@@ -273,11 +285,8 @@ impl ElevatorFSM {
             && self.hall_requests[floor as usize][HALL_DOWN as usize]
         {
             // Open the door
-            self.door_open_tx
-                .as_ref()
-                .expect("Door channel not found!")
-                .send(())
-                .unwrap();
+            let _ = self.hw_door_light_tx.send(true);
+            let _ = self.hw_motor_direction_tx.send(DIRN_STOP);
             self.door_open = true;
 
             // Update the state and send it to the coordinator

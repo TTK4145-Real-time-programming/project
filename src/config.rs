@@ -5,6 +5,7 @@ use std::fs;
 pub struct Config {
     pub network: NetworkConfig,
     pub elevator: ElevatorConfig,
+    pub hardware: HardwareConfig,
 }
 
 #[derive(Deserialize, Clone)]
@@ -16,6 +17,7 @@ pub struct NetworkConfig {
 
 #[derive(Deserialize, Clone)]
 pub struct ElevatorConfig {
+    pub n_floors: u8,
     pub door_open_time: u64,
 }
 
