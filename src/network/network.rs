@@ -21,7 +21,7 @@ pub fn network(config: &NetworkConfig) -> std::io::Result<()> {
     let id = if args.len() > 1 {
         args[1].clone()
     } else {
-        let local_ip = net::TcpStream::connect(config.init_address.clone())
+        let local_ip = net::TcpStream::connect(config.id_gen_address.clone())
             .unwrap()
             .local_addr()
             .unwrap()

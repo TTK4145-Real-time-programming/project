@@ -1,3 +1,3 @@
 pub mod update_data;
 
-pub use update_data::RequestAssigner;
+pub use update_data::Cordinator;

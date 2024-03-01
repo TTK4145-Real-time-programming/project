@@ -1,48 +1,35 @@
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
 use std::collections::HashMap;
 use driver_rust::elevio::elev::Elevator;
-use serde::{Deserialize, Serialize};
-use std::sync::mpsc;
 use std::thread;
+use crossbeam_channel as cbc;
 use std::sync::{Arc, Mutex};
+use network_rust::udpnet::peers::PeerUpdate;
 use crate::elevator::fsm::Behaviour;
 use crate::elevator::fsm::ElevatorFSM;
-
-use crate::config;
-
-/*  TODO:
-    Alle data structure (structs) should be in own file?
-    This data structure WILL be used by this module AND Netowrk
-    This file should only contain Updatdata related implementation
-*/
-
-/*
-    to run the rquest assigner. Call:
-    let assigner = RequestAssigner::init(....)
-    let assigner = Arc::new(Mutex::new(assigner))
-    RequestAssigner::run(assigner.clone())
-
-    This will ensure thread safty when having button and "main"-Request_Assigner thread running
-*/
 
 
 // Defining events the thread will trigger on
 pub enum GlobalEvent {
-    newButtonRequest(u8, u8),
-    Network,
+    newPackage(ElevatorData),
+    newButtonRequest((u8, u8)),
+    newPeerUpdate(PeerUpdate),
+    newElevatorState(ElevatorState),
+    completedOrder((u8, u8)),
     MergeNew,
     MergeConflict,
     NoEvent,
-    NewElevator,
-    DeadElavtor,
 }
 
-//Defning merge events
+// Enum for mergiing of ElevetorData
+#[derive(PartialEq)]
 pub enum MergeEvent{
-    Merge,
     MergeConflict,
-    NoMerging,
+    MergeNew,
+    NoMerge,
 }
+
+
 
 //defining datatypes for the structs
 type BooleanPair = [bool; 2];
@@ -108,121 +95,287 @@ impl ElevatorData{
 
 
 // Request assigner 
-pub struct RequestAssigner{
+pub struct Cordinator{
     elevator_data: ElevatorData, 
     local_elevator: Elevator,
     local_id: String,
+    num_floors: u8,
     
     // Button thread variables
-    button_tx: mpsc::Sender<GlobalEvent>,
-    button_rx: Arc<Mutex<mpsc::Receiver<GlobalEvent>>>,
+    button_tx: cbc::Sender<(u8,u8)>,
+    button_rx: cbc::Receiver<(u8,u8)>,
+
+    //Local elevaotr com channels
+    hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
+    state_rx: cbc::Receiver<ElevatorState>,
+    complete_order_rx: cbc::Receiver<(u8, u8)>,
+
+    //Network thread channels
+    data_send_tx: cbc::Sender<ElevatorData>,
+    peer_update_rx: cbc::Receiver<PeerUpdate>,
+    data_recv_rx: cbc::Receiver<ElevatorData>, 
 }
 
 
-impl RequestAssigner{
+impl Cordinator{
     //Initilizing Request assigner strcuct and puts it in a thread (?)
-    pub fn init(elevator_data: ElevatorData, local_id: String) -> Result<Self, std::io::Error>{
-        
-        //Making instance of elevator to read buttons
-        let config = config::load_config();
-        let elevator = Elevator::init(&config.elevator.driver_address, config.elevator.n_floors)?;
+    pub fn init(
+        elevator_data: ElevatorData,
+        elevator_driver: Elevator, 
+        local_id: String,
+        num_floors: u8,
+
+        hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
+        state_rx: cbc::Receiver<ElevatorState>,
+        complete_order_rx: cbc::Receiver<(u8, u8)>,
+
+        data_send_tx: cbc::Sender<ElevatorData>,
+        peer_update_rx: cbc::Receiver<PeerUpdate>,
+        data_recv_rx: cbc::Receiver<ElevatorData>,
+    ) -> Result<Self, std::io::Error>{
 
         //Making channel for button thread
-        let (button_tx, button_rx) = mpsc::channel::<GlobalEvent>();
-        let button_rx_shared = Arc::new(Mutex::new(button_rx));
+        let (button_tx, button_rx) = cbc::unbounded::<(u8,u8)>();
         
-        Ok(RequestAssigner{
-            //num_floors: num_floors,
+        Ok(Cordinator{
+            //Local elevator
             elevator_data: elevator_data,
-            local_elevator: elevator,
+            local_elevator: elevator_driver,
             local_id: local_id,
+            num_floors: num_floors,
 
-            //Button thread related atributes
+            //Button thread channels
+            button_rx: button_rx,
             button_tx: button_tx,
-            button_rx: button_rx_shared,
+
+            //Local elevator thread channels
+            state_rx: state_rx,
+            complete_order_rx: complete_order_rx,
+            hall_requests_tx: hall_requests_tx,
+
+            // Netowrk thread channels
+            data_recv_rx: data_recv_rx,
+            peer_update_rx: peer_update_rx,
+            data_send_tx: data_send_tx,
         })
     }
     
     // ---- main functions -----
 
     //Main run function
-    pub fn run(assigner: Arc<Mutex<Self>>) { 
+    pub fn run(&self, assigner: Arc<Mutex<Self>>) { 
         //Spawning the button-thread to listen for button calls
         let tx_clone = {
             let locked_assigner = assigner.lock().unwrap();
             locked_assigner.button_tx.clone()
         };
 
-        thread::spawn(move || {
-            loop{
-                let event = {
-                    let locked_assigner = assigner.lock().unwrap();
-                    locked_assigner.wait_for_button()
+        // thread::spawn(move || {
+        //     loop{
+        //         let event = {
+        //             let locked_assigner = assigner.lock().unwrap();
+        //             locked_assigner.wait_for_button()
 
-                    // TODO: Slow down this loop perhaps??
-                };
+        //             // TODO: Slow down this loop perhaps??
+        //         };
 
-                match event {
-                    GlobalEvent::NoEvent => {
-                        //Do nothing
-                    },
-                    //If other event transmit it
-                    _ => {
-                        tx_clone.send(event).expect("Failed to send event to Rewuest assigner thread")
-                    }
-                }
-            }
-        });
+        //         match event {
+        //             GlobalEvent::NoEvent => {
+        //                 //Do nothing
+        //             },
+        //             //If other event transmit it
+        //             _ => {
+        //                 tx_clone.send(event).expect("Failed to send event to Cordinator thread")
+        //             }
+        //         }
+        //     }
+        // });
 
-        // Add the wait_for_event here:
-            // listen to three channels
-            // Handle this based on the events
+        // Main cordinator loop
+        loop {
+            let event: GlobalEvent = self.wait_for_event();
+            self.handle_event(event);
+        }
     }
 
 
 
     // ---- Extra functions -----
 
-    pub fn send_to_fsm(&self, order_list: Vec<Vec<bool>>){
+    fn handle_event(&self, event: GlobalEvent){
+        match event {
+            GlobalEvent::newPackage(elevator_data) => {
+                let merge_type = self.check_version(elevator_data.version);
+                if merge_type != MergeEvent::NoMerge {
+                    //Incomming version newer than local
+                    if merge_type == MergeEvent::MergeNew {
+                        self.elevator_data = elevator_data;
+                        self.update_lights();
+                        self.hall_request_assigner();
+                    }
 
+                    //Inncommning data has merge conflict
+                    if merge_type == MergeEvent::MergeConflict {
+                        // TODO: merge conflict
+                        
+                        self.update_lights();
+                        self.hall_request_assigner();
+                    }
+                }
+            },
+
+            GlobalEvent::newPeerUpdate(peer_update) => {
+                let lost_elevators = peer_update.lost;
+
+                //Removing dead elevators
+                for elevator in lost_elevators.iter_mut() {
+                    self.elevator_data.states.remove(elevator);
+                }
+            },
+
+            GlobalEvent::newButtonRequest(new_button_request) => {
+                if new_button_request.1 == CAB {
+                    //Checking if button is already in elevatorData
+                    if !self.check_cab_button(new_button_request.0) {
+                        //Adding the new buttong to ElevatorData
+                        if let Some(state) = self.elevator_data.states.get_mut(&self.local_id) {
+                            state.cab_requests[new_button_request.0 as usize] = true;
+                            
+                            //TODO: Set lights
+                            self.hall_request_assigner()
+                        }
+                    }
+                }
+                // If hall button
+            },
+
+            GlobalEvent::
+        }
     }
 
-    pub fn wait_for_event(&self){
-        // Listen to:
-            //network
-                //peer
-                //data
-            
-            //Fsm
+    
+    fn wait_for_event(&self) -> GlobalEvent{
+        cbc::select! {
+            //Handling new package
+            recv(self.data_recv_rx) -> package => {
+               match package {
+                Ok(elevator_data) => {
+                return GlobalEvent::newPackage(elevator_data);
+                },
+                Err(e) => {
+                    println!("Error extracting network package in cordinator\n");
+                },
+               }
+            },
 
-            //buttons
+            //Hanlding peer update
+            recv(self.peer_update_rx) -> peer => {
+                match peer {
+                 Ok(peer_update) => {
+                    return GlobalEvent::newPeerUpdate(peer_update);
+                 },
+                 Err(e) => {
+                     println!("Error extracting peer update package in cordinator\n");
+                 },
+                }
+             },
+ 
+            //Handling new button press
+            recv(self.button_rx) -> new_button => {
+                match new_button {
+                 Ok(new_button_request) => {
+                    return GlobalEvent::newButtonRequest(new_button_request);
+                 },
+                 Err(e) => {
+                     println!("Error extracting button package in cordinator\n");
+                 },
+                }
+             },
 
-        //based on this
-          //merge/mergeconflict -> JSON -> HRA -> Network
-          //Set lights
-          //send to FSM
+            //Handling new local elevator state
+            recv(self.state_rx) -> new_state => {
+                match new_state {
+                 Ok(elevator_state) => {
+                    return GlobalEvent::newElevatorState(elevator_state);
+                 },
+                 Err(e) => {
+                     println!("Error extracting network package in cordinator\n");
+                 },
+                }
+             },
+             
+            //Handling completed order from local elevator
+            recv(self.complete_order_rx) -> completed_order => {
+                match completed_order {
+                 Ok(finish_order) => {
+                    return GlobalEvent::completedOrder(finish_order);
+                 },
+                 Err(e) => {
+                     println!("Error extracting completed order from local elevator in cordinator\n");
+                 },
+                }
+             }
+        }
+        return GlobalEvent::NoEvent;
+    }
+
+    //Update lights
+    fn update_lights(&self){
+        //iterating through all buttons
+        for floor in 0..self.num_floors {
+            //TODO:
+        }
+    }
+
+    //Calcualting hall requests
+    fn hall_request_assigner(&self){
+        // To JSON
+        // run exe
+        // back to ElevatorData -> data_send_tx
+        // Send orders that belongs to local elevator
+        // TODO:
     }
     
+    // Checks if incommning version is newer than local version
+    fn check_version(&self, version: u64) -> MergeEvent{
+        if version > self.elevator_data.version {
+            return MergeEvent::MergeNew;
+        }
+        else if version == self.elevator_data.version{
+            return MergeEvent::MergeConflict;
+        }
+        else{
+            return MergeEvent::NoMerge;
+        } 
+    }
+    
+
+
+
+
+
+    // --------------------- Button related ------------------------
+
     pub fn wait_for_button(&self) -> GlobalEvent{
         // Checking for all button presses and if they are already handled
-        for floor in 0..self.local_elevator.num_floors {
+        for floor in 0..self.num_floors {
             //Checking cab buttons 
             if !self.check_cab_button(floor) 
             && self.local_elevator.call_button(floor, CAB)
             {
-                return GlobalEvent::newButtonRequest(floor, CAB);
+                return GlobalEvent::newButtonRequest((floor, CAB));
             }
 
             //Checking hall buttons
             if !self.check_hall_button(floor, HALL_UP) 
             && self.local_elevator.call_button(floor, HALL_UP)
             {
-                return GlobalEvent::newButtonRequest(floor, HALL_UP);
+                return GlobalEvent::newButtonRequest((floor, HALL_UP));
             }
             if !self.check_hall_button(floor, HALL_DOWN) 
             && self.local_elevator.call_button(floor, HALL_DOWN)
             {
-                return GlobalEvent::newButtonRequest(floor, HALL_DOWN);
+                return GlobalEvent::newButtonRequest((floor, HALL_DOWN));
             }
         }
 
@@ -265,19 +418,6 @@ impl RequestAssigner{
         }
     }
 
-    // Checks if incommning version is newer than local version
-    fn check_version(&self, version: u64) -> GlobalEvent{
-        if version > self.elevator_data.version {
-            return GlobalEvent::MergeNew;
-        }
-        else if version == self.elevator_data.version{
-            return GlobalEvent::MergeConflict;
-        }
-        else{
-            //TODO: If versions is older it will completly ignore it. Is this safe?
-            return GlobalEvent::NoEvent;
-        } 
-    }
 }
 
 
