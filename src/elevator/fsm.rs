@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 /**
  * Manages elevator operation logic.
  *
- * The `ElevatorFSM` (Finite State Machine) controls the elevator's behavior by processing events such as floor requests, 
+ * The `ElevatorFSM` (Finite State Machine) controls the elevator's behavior by processing events such as floor requests,
  * door operations, and sensor inputs. It communicates with elevator hardware and coordinator thread.
  *
  * # Fields

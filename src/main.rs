@@ -1,8 +1,8 @@
 /* 3rd party libraries */
 use crossbeam_channel as cbc;
 use network_rust::udpnet;
-use std::thread::*;
 use std::thread::Builder;
+use std::thread::*;
 
 /* Custom libraries */
 use network::Network;
@@ -57,7 +57,9 @@ fn main() -> std::io::Result<()> {
     );
 
     let elevator_driver_thread = Builder::new().name("elevator_driver".into());
-    elevator_driver_thread.spawn(move || elevator_driver.run()).unwrap();
+    elevator_driver_thread
+        .spawn(move || elevator_driver.run())
+        .unwrap();
 
     // Start the network module
     let network = Network::new(
@@ -84,7 +86,9 @@ fn main() -> std::io::Result<()> {
     );
 
     let elevator_fsm_thread = Builder::new().name("elevator_fsm".into());
-    elevator_fsm_thread.spawn(move || elevator_fsm.run()).unwrap();
+    elevator_fsm_thread
+        .spawn(move || elevator_fsm.run())
+        .unwrap();
 
     /*
 

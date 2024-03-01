@@ -1,8 +1,8 @@
 use crate::config::HardwareConfig;
-use std::time::Duration;
 use crossbeam_channel as cbc;
 use driver_rust::elevio::elev::Elevator;
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
+use std::time::Duration;
 
 /**
  * # Elevator Driver
@@ -73,7 +73,6 @@ impl ElevatorDriver {
 
     pub fn run(mut self) {
         loop {
-            
             // Check if new floor is hit
             if let Some(floor) = self.elevator.floor_sensor() {
                 if floor != self.current_floor {
@@ -92,7 +91,7 @@ impl ElevatorDriver {
                 self.obstruction = !self.obstruction;
                 self.hw_obstruction_tx.send(self.obstruction).unwrap();
             }
-            
+
             // Check if any call buttons are pressed
             for floor in 0..self.elevator.num_floors {
                 if self.elevator.call_button(floor, HALL_UP) {
@@ -121,7 +120,6 @@ impl ElevatorDriver {
                 }
                 default(Duration::from_millis(self.thread_sleep_time)) => {}
             }
-
         }
     }
 }
