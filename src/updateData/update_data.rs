@@ -1,23 +1,23 @@
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
 use std::collections::HashMap;
 use driver_rust::elevio::elev::Elevator;
-use std::thread;
 use crossbeam_channel as cbc;
 use std::sync::{Arc, Mutex};
 use network_rust::udpnet::peers::PeerUpdate;
+
 use crate::elevator::fsm::Behaviour;
 use crate::elevator::fsm::ElevatorFSM;
+use crate::shared_structs::{ElevatorData, ElevatorState};
+
 
 
 // Defining events the thread will trigger on
 pub enum GlobalEvent {
-    newPackage(ElevatorData),
-    newButtonRequest((u8, u8)),
-    newPeerUpdate(PeerUpdate),
-    newElevatorState(ElevatorState),
-    completedOrder((u8, u8)),
-    MergeNew,
-    MergeConflict,
+    NewPackage(ElevatorData),
+    NewButtonRequest((u8, u8)),
+    NewPeerUpdate(PeerUpdate),
+    NewElevatorState(ElevatorState),
+    CompletedOrder((u8, u8)),
     NoEvent,
 }
 
@@ -80,16 +80,6 @@ impl ElevatorData{
             states: states,
         })
     }
-    
-    //Adds new elevator when new elevator has appeard on network
-    pub fn add_new_elevator(id: String){
-        //Adds new elevator to States vector
-    }
-
-    // Removes elevator when elevator has dissapeared (gone SOLO)
-    pub fn remove_elevator(id: String){
-        //Removes a elevator from vec based on id
-    }
 }
 
 
@@ -101,9 +91,9 @@ pub struct Cordinator{
     local_id: String,
     num_floors: u8,
     
-    // Button thread variables
-    button_tx: cbc::Sender<(u8,u8)>,
-    button_rx: cbc::Receiver<(u8,u8)>,
+    // Hardware channels
+    hw_button_light_tx: cbc::Sender<(u8,u8,bool)>,
+    hw_hall_request_rx: cbc::Receiver<(u8,u8)>,
 
     //Local elevaotr com channels
     hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
@@ -125,6 +115,9 @@ impl Cordinator{
         local_id: String,
         num_floors: u8,
 
+        hw_button_light_tx: cbc::Sender<(u8,u8,bool)>,
+        hw_hall_request_rx: cbc::Receiver<(u8,u8)>,
+
         hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
         state_rx: cbc::Receiver<ElevatorState>,
         complete_order_rx: cbc::Receiver<(u8, u8)>,
@@ -144,9 +137,9 @@ impl Cordinator{
             local_id: local_id,
             num_floors: num_floors,
 
-            //Button thread channels
-            button_rx: button_rx,
-            button_tx: button_tx,
+            //Hardware channels
+            hw_button_light_tx: hw_button_light_tx,
+            hw_hall_request_rx: hw_hall_request_rx,
 
             //Local elevator thread channels
             state_rx: state_rx,
@@ -163,34 +156,7 @@ impl Cordinator{
     // ---- main functions -----
 
     //Main run function
-    pub fn run(&self, assigner: Arc<Mutex<Self>>) { 
-        //Spawning the button-thread to listen for button calls
-        let tx_clone = {
-            let locked_assigner = assigner.lock().unwrap();
-            locked_assigner.button_tx.clone()
-        };
-
-        // thread::spawn(move || {
-        //     loop{
-        //         let event = {
-        //             let locked_assigner = assigner.lock().unwrap();
-        //             locked_assigner.wait_for_button()
-
-        //             // TODO: Slow down this loop perhaps??
-        //         };
-
-        //         match event {
-        //             GlobalEvent::NoEvent => {
-        //                 //Do nothing
-        //             },
-        //             //If other event transmit it
-        //             _ => {
-        //                 tx_clone.send(event).expect("Failed to send event to Cordinator thread")
-        //             }
-        //         }
-        //     }
-        // });
-
+    pub fn run(& mut self, assigner: Arc<Mutex<Self>>) { 
         // Main cordinator loop
         loop {
             let event: GlobalEvent = self.wait_for_event();
@@ -202,9 +168,9 @@ impl Cordinator{
 
     // ---- Extra functions -----
 
-    fn handle_event(&self, event: GlobalEvent){
+    fn handle_event(&mut self, event: GlobalEvent){
         match event {
-            GlobalEvent::newPackage(elevator_data) => {
+            GlobalEvent::NewPackage(elevator_data) => {
                 let merge_type = self.check_version(elevator_data.version);
                 if merge_type != MergeEvent::NoMerge {
                     //Incomming version newer than local
@@ -224,8 +190,8 @@ impl Cordinator{
                 }
             },
 
-            GlobalEvent::newPeerUpdate(peer_update) => {
-                let lost_elevators = peer_update.lost;
+            GlobalEvent::NewPeerUpdate(peer_update) => {
+                let mut lost_elevators = peer_update.lost;
 
                 //Removing dead elevators
                 for elevator in lost_elevators.iter_mut() {
@@ -233,7 +199,7 @@ impl Cordinator{
                 }
             },
 
-            GlobalEvent::newButtonRequest(new_button_request) => {
+            GlobalEvent::NewButtonRequest(new_button_request) => {
                 if new_button_request.1 == CAB {
                     //Checking if button is already in elevatorData
                     if !self.check_cab_button(new_button_request.0) {
@@ -242,14 +208,33 @@ impl Cordinator{
                             state.cab_requests[new_button_request.0 as usize] = true;
                             
                             //TODO: Set lights
+                            self.update_lights();
+
                             self.hall_request_assigner()
                         }
                     }
                 }
                 // If hall button
+                //TODO:
+
             },
 
-            GlobalEvent::
+            GlobalEvent::NewElevatorState(elevator_state) => {
+                // Changing state of local elevator
+                if let Some(state) = self.elevator_data.states.get_mut(&self.local_id) {
+                    *state = elevator_state;
+                }
+
+                self.hall_request_assigner();
+            },
+
+            GlobalEvent::CompletedOrder(finish_order) => {
+                //TODO:
+            },
+
+            GlobalEvent::NoEvent => {
+                // Do some data cleanup? 
+            }
         }
     }
 
@@ -260,7 +245,7 @@ impl Cordinator{
             recv(self.data_recv_rx) -> package => {
                match package {
                 Ok(elevator_data) => {
-                return GlobalEvent::newPackage(elevator_data);
+                return GlobalEvent::NewPackage(elevator_data);
                 },
                 Err(e) => {
                     println!("Error extracting network package in cordinator\n");
@@ -272,7 +257,7 @@ impl Cordinator{
             recv(self.peer_update_rx) -> peer => {
                 match peer {
                  Ok(peer_update) => {
-                    return GlobalEvent::newPeerUpdate(peer_update);
+                    return GlobalEvent::NewPeerUpdate(peer_update);
                  },
                  Err(e) => {
                      println!("Error extracting peer update package in cordinator\n");
@@ -281,10 +266,10 @@ impl Cordinator{
              },
  
             //Handling new button press
-            recv(self.button_rx) -> new_button => {
+            recv(self.hw_hall_request_rx) -> new_button => {
                 match new_button {
                  Ok(new_button_request) => {
-                    return GlobalEvent::newButtonRequest(new_button_request);
+                    return GlobalEvent::NewButtonRequest(new_button_request);
                  },
                  Err(e) => {
                      println!("Error extracting button package in cordinator\n");
@@ -296,7 +281,7 @@ impl Cordinator{
             recv(self.state_rx) -> new_state => {
                 match new_state {
                  Ok(elevator_state) => {
-                    return GlobalEvent::newElevatorState(elevator_state);
+                    return GlobalEvent::NewElevatorState(elevator_state);
                  },
                  Err(e) => {
                      println!("Error extracting network package in cordinator\n");
@@ -308,7 +293,7 @@ impl Cordinator{
             recv(self.complete_order_rx) -> completed_order => {
                 match completed_order {
                  Ok(finish_order) => {
-                    return GlobalEvent::completedOrder(finish_order);
+                    return GlobalEvent::CompletedOrder(finish_order);
                  },
                  Err(e) => {
                      println!("Error extracting completed order from local elevator in cordinator\n");
@@ -321,19 +306,18 @@ impl Cordinator{
 
     //Update lights
     fn update_lights(&self){
-        //iterating through all buttons
-        for floor in 0..self.num_floors {
-            //TODO:
-        }
+        //Sending change in lights
+
+        //Will take the light that needs to change as arg.
     }
 
     //Calcualting hall requests
     fn hall_request_assigner(&self){
+        // TODO:
         // To JSON
         // run exe
         // back to ElevatorData -> data_send_tx
         // Send orders that belongs to local elevator
-        // TODO:
     }
     
     // Checks if incommning version is newer than local version
@@ -363,19 +347,19 @@ impl Cordinator{
             if !self.check_cab_button(floor) 
             && self.local_elevator.call_button(floor, CAB)
             {
-                return GlobalEvent::newButtonRequest((floor, CAB));
+                return GlobalEvent::NewButtonRequest((floor, CAB));
             }
 
             //Checking hall buttons
             if !self.check_hall_button(floor, HALL_UP) 
             && self.local_elevator.call_button(floor, HALL_UP)
             {
-                return GlobalEvent::newButtonRequest((floor, HALL_UP));
+                return GlobalEvent::NewButtonRequest((floor, HALL_UP));
             }
             if !self.check_hall_button(floor, HALL_DOWN) 
             && self.local_elevator.call_button(floor, HALL_DOWN)
             {
-                return GlobalEvent::newButtonRequest((floor, HALL_DOWN));
+                return GlobalEvent::NewButtonRequest((floor, HALL_DOWN));
             }
         }
 
@@ -417,8 +401,7 @@ impl Cordinator{
             return true;
         }
     }
-
-}
+    }
 
 
 
