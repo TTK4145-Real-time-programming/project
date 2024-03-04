@@ -8,7 +8,7 @@ use crate::shared_structs::{ElevatorData, ElevatorState, Behaviour, Direction};
 // Defining events the thread will trigger on
 pub enum GlobalEvent {
     NewPackage(ElevatorData),
-    NewButtonRequest((u8, u8)),
+    RequestReceived((u8, u8)),
     NewPeerUpdate(PeerUpdate),
     NewElevatorState(ElevatorState),
     CompletedOrder((u8, u8)),
@@ -146,9 +146,9 @@ impl Coordinator{
                 }
             },
 
-            GlobalEvent::NewButtonRequest(new_button_request) => {
+            GlobalEvent::RequestReceived(new_button_request) => {
                 //Checking if button already has been handled
-                if new_button_request.1 == CAB && !self.elevator_data.states.get_mut(&self.local_id).unwrap().cab_requests[new_button_request.0 as usize] {
+                if new_button_request.1 == CAB && !self.elevator_data.states.get(&self.local_id).unwrap().cab_requests[new_button_request.0 as usize] {
                     //Updating local elevator data
                     self.elevator_data.states.get_mut(&self.local_id).unwrap().cab_requests[new_button_request.0 as usize] = true;
                     //Sending the new request to local elevator
@@ -258,7 +258,7 @@ impl Coordinator{
             recv(self.hw_request_rx) -> request => {
                 match request {
                  Ok(request) => {
-                    return GlobalEvent::NewButtonRequest(request);
+                    return GlobalEvent::RequestReceived(request);
                  },
                  Err(e) => {
                      eprintln!("Error extracting button package in coordinator: {:?}\r\n", e);
@@ -268,10 +268,11 @@ impl Coordinator{
              },
 
             //Handling new local elevator state
-            recv(self.state_rx) -> new_state => {
-                match new_state {
-                 Ok(elevator_state) => {
-                    return GlobalEvent::NewElevatorState(elevator_state);
+            recv(self.state_rx) -> state => {
+                match state {
+                 Ok(state) => {
+                    println!("State: {}", serde_json::to_string(&state).expect("fuck"));
+                    return GlobalEvent::NewElevatorState(state);
                  },
                  Err(e) => {
                      eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
