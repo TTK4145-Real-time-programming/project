@@ -107,7 +107,9 @@ impl Coordinator{
     fn handle_event(&mut self, event: GlobalEvent){
         match event {
             GlobalEvent::NewPackage(elevator_data) => {
-                let merge_type = self.check_version(elevator_data.version);
+                println!("New package: {:?}", elevator_data);
+                // let merge_type = self.check_version(elevator_data.version);
+                let merge_type = MergeEvent::MergeNew;
                 if merge_type != MergeEvent::NoMerge {
                     //Incomming version newer than local
                     if merge_type == MergeEvent::MergeNew {
@@ -127,6 +129,7 @@ impl Coordinator{
                         self.elevator_data.states = elevator_data.states;
 
                         self.hall_request_assigner(false);
+                        
                     }
 
                     //Inncommning data has merge conflict
@@ -181,6 +184,9 @@ impl Coordinator{
                     }
                 }
 
+                // Send the updated elevator data
+                self.data_send_tx.send(self.elevator_data.clone()).expect("Failed to send elevator data to network thread");
+
             },
 
             GlobalEvent::NewElevatorState(elevator_state) => {
@@ -200,6 +206,9 @@ impl Coordinator{
                 }
 
                 self.hall_request_assigner(true);
+
+                // Send the updated elevator data
+                self.data_send_tx.send(self.elevator_data.clone()).expect("Failed to send elevator data to network thread");
             },
 
             GlobalEvent::CompletedOrder(finish_order) => {
@@ -270,7 +279,6 @@ impl Coordinator{
             recv(self.state_rx) -> state => {
                 match state {
                  Ok(state) => {
-                    // println!("State: {}", serde_json::to_string(&state).expect("fuck"));
                     return GlobalEvent::NewElevatorState(state);
                  },
                  Err(e) => {
@@ -308,19 +316,6 @@ impl Coordinator{
     // Calcualting hall requests
     fn hall_request_assigner(&mut self, transmit: bool){
         let hra_input = serde_json::to_string(&self.elevator_data).expect("Failed to serialize data");
-        // let hra_input = ElevatorData {
-        //     version: 0,
-        //     hall_requests: vec![vec![true, false], vec![false, true], vec![false, false], vec![false, false]],
-        //     states: HashMap::from([
-        //         ("id_1".to_string(), ElevatorState {
-        //             behaviour: Behaviour::Idle,
-        //             floor: 0,
-        //             direction: Direction::Stop,
-        //             cab_requests: vec![false, false, true, false],
-        //         }),
-        //     ]),
-        // };
-        println!("Serialized data: {:?}", hra_input);
         
         // Run the Linux executable with serialized_data as input
         let hra_output = Command::new("./src/coordinator/hall_request_assigner")
