@@ -7,7 +7,8 @@ use network_rust::udpnet::peers::PeerUpdate;
 
 use crate::elevator::fsm::Behaviour;
 use crate::elevator::fsm::ElevatorFSM;
-use crate::shared_structs::{ElevatorData, ElevatorState};
+//use crate::shared_structs::{ElevatorData, ElevatorState};
+
 
 
 
@@ -175,17 +176,30 @@ impl Cordinator{
                 if merge_type != MergeEvent::NoMerge {
                     //Incomming version newer than local
                     if merge_type == MergeEvent::MergeNew {
-                        self.elevator_data = elevator_data;
-                        self.update_lights();
-                        self.hall_request_assigner();
+                        //Updating lights
+                        let new_hall_request = elevator_data.hall_requests.clone();
+                        for floor in 0..self.num_floors {
+                            if new_hall_request[floor as usize][HALL_DOWN as usize] != self.elevator_data.hall_requests[floor as usize][HALL_DOWN as usize] {
+                                self.update_lights((floor, HALL_DOWN, new_hall_request[floor as usize][HALL_DOWN as usize]));
+                                }
+                            if new_hall_request[floor as usize][HALL_UP as usize] != self.elevator_data.hall_requests[floor as usize][HALL_UP as usize] {
+                                self.update_lights((floor, HALL_UP, new_hall_request[floor as usize][HALL_UP as usize]));
+                                } 
+                        }
+                        //Writing the new changes to elevatorData
+                        self.elevator_data.version = elevator_data.version;
+                        self.elevator_data.hall_requests = new_hall_request;
+                        self.elevator_data.states = elevator_data.states;
+
+                        self.hall_request_assigner(false);
                     }
 
                     //Inncommning data has merge conflict
                     if merge_type == MergeEvent::MergeConflict {
                         // TODO: merge conflict
                         
-                        self.update_lights();
-                        self.hall_request_assigner();
+                        //self.update_lights();
+                        //self.hall_request_assigner(false);
                     }
                 }
             },
@@ -200,36 +214,40 @@ impl Cordinator{
             },
 
             GlobalEvent::NewButtonRequest(new_button_request) => {
-                if new_button_request.1 == CAB {
-                    //Checking if button is already in elevatorData
-                    if !self.check_cab_button(new_button_request.0) {
-                        //Adding the new buttong to ElevatorData
-                        if let Some(state) = self.elevator_data.states.get_mut(&self.local_id) {
-                            state.cab_requests[new_button_request.0 as usize] = true;
-                            
-                            //TODO: Set lights
-                            self.update_lights();
-
-                            self.hall_request_assigner()
-                        }
-                    }
+                //Checking if button already has been handled
+                if !self.check_hall_button(new_button_request.0, new_button_request.1) {
+                    // Writing change to elvatorData
+                    self.elevator_data.hall_requests[new_button_request.0 as usize][new_button_request.1 as usize] = true;
+                    self.update_lights((new_button_request.0,new_button_request.1,true));
+                    self.hall_request_assigner(true);
                 }
-                // If hall button
-                //TODO:
 
             },
 
             GlobalEvent::NewElevatorState(elevator_state) => {
+                // Checking for new cab requests
+                let current_cab_requests = &self.elevator_data.states[&self.local_id].cab_requests;
+
+                for floor in 0..self.num_floors {
+                    if current_cab_requests[floor as usize] != elevator_state.cab_requests[floor as usize] {
+                        //Updating cab button lights with new changes from FSM
+                        self.update_lights((floor, CAB, current_cab_requests[floor as usize]));
+                    }
+                }
+
                 // Changing state of local elevator
                 if let Some(state) = self.elevator_data.states.get_mut(&self.local_id) {
                     *state = elevator_state;
                 }
 
-                self.hall_request_assigner();
+                self.hall_request_assigner(true);
             },
 
             GlobalEvent::CompletedOrder(finish_order) => {
-                //TODO:
+                //Updating elevatorData, lights and sending the change 
+                self.elevator_data.hall_requests[finish_order.0 as usize][finish_order.1 as usize] = false;
+                self.update_lights((finish_order.0, finish_order.1, false));
+                self.hall_request_assigner(true);
             },
 
             GlobalEvent::NoEvent => {
@@ -305,14 +323,15 @@ impl Cordinator{
     }
 
     //Update lights
-    fn update_lights(&self){
+    fn update_lights(&self, light: (u8,u8,bool)){
         //Sending change in lights
-
-        //Will take the light that needs to change as arg.
+        if let Err(e) = self.hw_button_light_tx.send(light) {
+            eprintln!("Failed to send light command to light thread from cordinator: {:?}", e);
+        }
     }
 
     //Calcualting hall requests
-    fn hall_request_assigner(&self){
+    fn hall_request_assigner(&self, transmit: bool){
         // TODO:
         // To JSON
         // run exe
@@ -333,60 +352,8 @@ impl Cordinator{
         } 
     }
     
-
-
-
-
-
     // --------------------- Button related ------------------------
-
-    pub fn wait_for_button(&self) -> GlobalEvent{
-        // Checking for all button presses and if they are already handled
-        for floor in 0..self.num_floors {
-            //Checking cab buttons 
-            if !self.check_cab_button(floor) 
-            && self.local_elevator.call_button(floor, CAB)
-            {
-                return GlobalEvent::NewButtonRequest((floor, CAB));
-            }
-
-            //Checking hall buttons
-            if !self.check_hall_button(floor, HALL_UP) 
-            && self.local_elevator.call_button(floor, HALL_UP)
-            {
-                return GlobalEvent::NewButtonRequest((floor, HALL_UP));
-            }
-            if !self.check_hall_button(floor, HALL_DOWN) 
-            && self.local_elevator.call_button(floor, HALL_DOWN)
-            {
-                return GlobalEvent::NewButtonRequest((floor, HALL_DOWN));
-            }
-        }
-
-        return GlobalEvent::NoEvent;
-    }
-
-    //Checks if cab button is already pressed (returns false if not pressed)
-    fn check_cab_button(&self, floor: u8) -> bool{
-        match self.elevator_data.states.get(&self.local_id) {
-            Some(elevator_state) => {
-                if !elevator_state.cab_requests[floor as usize] {
-                    //Button has not been handled
-                    return false;
-                }
-                else{
-                    //Button has already been handled
-                    return true;
-                }
-            },
-            // This should NEVER happen, implmented for cosmic bit-flip
-            None => {
-                print!("Elevator with id: {} not found", self.local_id);
-                return false;
-            }
-        }
-    }
-
+    
     //Checks if hall button is already been handled (return false if not pressed)
     fn check_hall_button(&self, floor: u8, call: u8) -> bool{
         if call == HALL_DOWN && !self.elevator_data.hall_requests[floor as usize][0] {
@@ -401,6 +368,55 @@ impl Cordinator{
             return true;
         }
     }
+
+
+    // pub fn wait_for_button(&self) -> GlobalEvent{
+    //     // Checking for all button presses and if they are already handled
+    //     for floor in 0..self.num_floors {
+    //         //Checking cab buttons 
+    //         if !self.check_cab_button(floor) 
+    //         && self.local_elevator.call_button(floor, CAB)
+    //         {
+    //             return GlobalEvent::NewButtonRequest((floor, CAB));
+    //         }
+
+    //         //Checking hall buttons
+    //         if !self.check_hall_button(floor, HALL_UP) 
+    //         && self.local_elevator.call_button(floor, HALL_UP)
+    //         {
+    //             return GlobalEvent::NewButtonRequest((floor, HALL_UP));
+    //         }
+    //         if !self.check_hall_button(floor, HALL_DOWN) 
+    //         && self.local_elevator.call_button(floor, HALL_DOWN)
+    //         {
+    //             return GlobalEvent::NewButtonRequest((floor, HALL_DOWN));
+    //         }
+    //     }
+
+    //     return GlobalEvent::NoEvent;
+    // }
+
+    // //Checks if cab button is already pressed (returns false if not pressed) 
+    // fn check_cab_button(&self, floor: u8) -> bool{
+    //     match self.elevator_data.states.get(&self.local_id) {
+    //         Some(elevator_state) => {
+    //             if !elevator_state.cab_requests[floor as usize] {
+    //                 //Button has not been handled
+    //                 return false;
+    //             }
+    //             else{
+    //                 //Button has already been handled
+    //                 return true;
+    //             }
+    //         },
+    //         // This should NEVER happen, implmented for cosmic bit-flip
+    //         None => {
+    //             print!("Elevator with id: {} not found", self.local_id);
+    //             return false;
+    //         }
+    //     }
+    // }
+
     }
 
 
