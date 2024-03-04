@@ -25,7 +25,8 @@ fn main() -> std::io::Result<()> {
     let config = config::load_config();
 
     // Initialize channels
-    let (request_tx, request_rx) = cbc::unbounded::<(u8, u8)>();
+    let (hall_requests_tx, hall_requests_rx) = cbc::unbounded::<Vec<Vec<bool>>>();
+    let (cab_request_tx, cab_request_rx) = cbc::unbounded::<u8>();
     let (complete_order_tx, complete_order_rx) = cbc::unbounded::<(u8, u8)>();
     let (state_tx, state_rx) = cbc::unbounded::<ElevatorState>();
     let (data_send_tx, data_send_rx) = cbc::unbounded::<ElevatorData>();
@@ -77,7 +78,8 @@ fn main() -> std::io::Result<()> {
         hw_door_light_tx,
         hw_obstruction_rx,
         hw_stop_button_rx,
-        request_rx,
+        hall_requests_rx,
+        cab_request_rx,
         complete_order_tx,
         state_tx,
     );
@@ -99,7 +101,8 @@ fn main() -> std::io::Result<()> {
         _n_floors,
         hw_button_light_tx,
         hw_request_rx,
-        request_tx,
+        hall_requests_tx,
+        cab_request_tx,
         state_rx,
         complete_order_rx,
         data_send_tx,

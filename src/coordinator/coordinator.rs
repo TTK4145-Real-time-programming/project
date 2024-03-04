@@ -34,8 +34,9 @@ pub struct Coordinator{
     hw_button_light_tx: cbc::Sender<(u8,u8,bool)>,
     hw_request_rx: cbc::Receiver<(u8,u8)>,
 
-    //Local elevaotr com channels
-    request_tx: cbc::Sender<(u8, u8)>,
+    //Local elevator com channels
+    hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
+    cab_request_tx: cbc::Sender<u8>,
     state_rx: cbc::Receiver<ElevatorState>,
     complete_order_rx: cbc::Receiver<(u8, u8)>,
 
@@ -47,7 +48,6 @@ pub struct Coordinator{
 
 
 impl Coordinator{
-    //Initilizing Request assigner struct and puts it in a thread (?)
     pub fn new(
         elevator_data: ElevatorData,
         local_id: String,
@@ -56,7 +56,8 @@ impl Coordinator{
         hw_button_light_tx: cbc::Sender<(u8,u8,bool)>,
         hw_request_rx: cbc::Receiver<(u8,u8)>,
 
-        request_tx: cbc::Sender<(u8, u8)>,
+        hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
+        cab_request_tx: cbc::Sender<u8>,
         state_rx: cbc::Receiver<ElevatorState>,
         complete_order_rx: cbc::Receiver<(u8, u8)>,
 
@@ -76,9 +77,10 @@ impl Coordinator{
             hw_request_rx,
 
             //Local elevator thread channels
+            hall_requests_tx,
+            cab_request_tx,
             state_rx,
             complete_order_rx,
-            request_tx,
 
             // Netowrk thread channels
             data_recv_rx,
@@ -144,42 +146,39 @@ impl Coordinator{
                 for elevator in lost_elevators.iter_mut() {
                     self.elevator_data.states.remove(elevator);
                 }
+
+                // Add new elevators
+                for id in peer_update.new.iter() {
+                    println!("New elevator: {:?}", id);
+                    self.elevator_data.states.insert(id.clone(), ElevatorState {
+                        behaviour: Behaviour::Idle,
+                        floor: 0,
+                        direction: Direction::Stop,
+                        cab_requests: vec![false; self.n_floors as usize],
+                    });
+                }
             },
 
-            GlobalEvent::RequestReceived(new_button_request) => {
-                //Checking if button already has been handled
-                if new_button_request.1 == CAB && !self.elevator_data.states.get(&self.local_id).unwrap().cab_requests[new_button_request.0 as usize] {
-                    //Updating local elevator data
-                    self.elevator_data.states.get_mut(&self.local_id).unwrap().cab_requests[new_button_request.0 as usize] = true;
-                    //Sending the new request to local elevator
-                    if let Err(e) = self.request_tx.send(new_button_request) {
-                        eprintln!("Failed to send new button request to local elevator from coordinator: {:?}", e);
-                        std::process::exit(1);
-                    }
+            GlobalEvent::RequestReceived(request) => {
+                
+                if request.1 == CAB {
+                    //Updating local elevator
+                    self.elevator_data.states.get_mut(&self.local_id).unwrap().cab_requests[request.0 as usize] = true;
+                    //Sending the change to the local elevator
+                    self.cab_request_tx.send(request.0).expect("Failed to send cab request to local elevator");
                     //Updating lights
-                    self.update_lights((new_button_request.0, new_button_request.1, true));
+                    self.update_lights((request.0, CAB, true));
                 }
-                else if new_button_request.1 == HALL_DOWN && !self.check_hall_button(new_button_request.0, HALL_DOWN) {
-                    //Updating local elevator data
-                    self.elevator_data.hall_requests[new_button_request.0 as usize][HALL_DOWN as usize] = true;
-                    //Sending the new request to local elevator
-                    if let Err(e) = self.request_tx.send(new_button_request) {
-                        eprintln!("Failed to send new button request to local elevator from coordinator: {:?}", e);
-                        std::process::exit(1);
+                else if request.1 == HALL_DOWN || request.1 == HALL_UP {
+                    //Checking if hall button has already been handled
+                    if !self.check_hall_button(request.0, request.1){
+                        //Updating hall requests
+                        self.elevator_data.hall_requests[request.0 as usize][request.1 as usize] = true;
+                        // Calculating and sending to local elevator
+                        self.hall_request_assigner(true);
+                        //Updating lights
+                        self.update_lights((request.0, request.1, true));
                     }
-                    //Updating lights
-                    self.update_lights((new_button_request.0, new_button_request.1, true));
-                }
-                else if new_button_request.1 == HALL_UP && !self.check_hall_button(new_button_request.0, HALL_UP) {
-                    //Updating local elevator data
-                    self.elevator_data.hall_requests[new_button_request.0 as usize][HALL_UP as usize] = true;
-                    //Sending the new request to local elevator
-                    if let Err(e) = self.request_tx.send(new_button_request) {
-                        eprintln!("Failed to send new button request to local elevator from coordinator: {:?}", e);
-                        std::process::exit(1);
-                    }
-                    //Updating lights
-                    self.update_lights((new_button_request.0, new_button_request.1, true));
                 }
 
             },
@@ -267,11 +266,11 @@ impl Coordinator{
                 }
              },
 
-            //Handling new local elevator state
+            // Handling new local elevator state
             recv(self.state_rx) -> state => {
                 match state {
                  Ok(state) => {
-                    println!("State: {}", serde_json::to_string(&state).expect("fuck"));
+                    // println!("State: {}", serde_json::to_string(&state).expect("fuck"));
                     return GlobalEvent::NewElevatorState(state);
                  },
                  Err(e) => {
@@ -281,7 +280,7 @@ impl Coordinator{
                 }
              },
              
-            //Handling completed order from local elevator
+            // Handling completed order from local elevator
             recv(self.complete_order_rx) -> completed_order => {
                 match completed_order {
                  Ok(finish_order) => {
@@ -297,7 +296,7 @@ impl Coordinator{
         return GlobalEvent::NoEvent;
     }
 
-    //Update lights
+    // Update lights
     fn update_lights(&self, light: (u8,u8,bool)){
         //Sending change in lights
         if let Err(e) = self.hw_button_light_tx.send(light) {
@@ -306,28 +305,27 @@ impl Coordinator{
         }
     }
 
-    //Calcualting hall requests
-    fn hall_request_assigner(&self, transmit: bool){
-        // let hra_input = serde_json::to_string(&self.elevator_data).expect("Failed to serialize data");
-        let hra_input = ElevatorData {
-            version: 0,
-            hall_requests: vec![vec![true, false], vec![false, true], vec![false, false], vec![false, false]],
-            states: HashMap::from([
-                ("id_1".to_string(), ElevatorState {
-                    behaviour: Behaviour::Idle,
-                    floor: 0,
-                    direction: Direction::Stop,
-                    cab_requests: vec![false, false, true, false],
-                }),
-            ]),
-        };
-        let hra_input_serialized = serde_json::to_string(&hra_input).expect("Failed to serialize data");
-        // println!("Serialized data: {:?}", hra_input_serialized);
+    // Calcualting hall requests
+    fn hall_request_assigner(&mut self, transmit: bool){
+        let hra_input = serde_json::to_string(&self.elevator_data).expect("Failed to serialize data");
+        // let hra_input = ElevatorData {
+        //     version: 0,
+        //     hall_requests: vec![vec![true, false], vec![false, true], vec![false, false], vec![false, false]],
+        //     states: HashMap::from([
+        //         ("id_1".to_string(), ElevatorState {
+        //             behaviour: Behaviour::Idle,
+        //             floor: 0,
+        //             direction: Direction::Stop,
+        //             cab_requests: vec![false, false, true, false],
+        //         }),
+        //     ]),
+        // };
+        println!("Serialized data: {:?}", hra_input);
         
         // Run the Linux executable with serialized_data as input
         let hra_output = Command::new("./src/coordinator/hall_request_assigner")
         .arg("--input")
-        .arg(&hra_input_serialized)
+        .arg(&hra_input)
         .output()
         .expect("Failed to execute hall_request_assigner");
 
@@ -335,20 +333,21 @@ impl Coordinator{
         if hra_output.status.success() {
             // The output of the executable is in the `stdout` field of the `hra_output` variable
             let hra_output_str = String::from_utf8(hra_output.stdout).expect("Invalid UTF-8 hra_output");
+            let hra_output = serde_json::from_str::<HashMap<String, Vec<Vec<bool>>>>(&hra_output_str).expect("Failed to deserialize hra_output");
             
-            // Use hra_output_str as needed
-            // println!("hra_output from hall_request_assigner: {:?}", hra_output_str);
+            // Update hall requests assigned to local elevator (HRA has three inner dimentions lol)
+            let mut local_hall_requests = vec![vec![false; 2]; self.n_floors as usize];
+            for (id, hall_requests) in hra_output.iter() {
+                if id == &self.local_id {
+                    for floor in 0..self.n_floors {
+                        local_hall_requests[floor as usize][HALL_UP as usize] = hall_requests[floor as usize][HALL_UP as usize];
+                        local_hall_requests[floor as usize][HALL_DOWN as usize] = hall_requests[floor as usize][HALL_DOWN as usize];
+                    }
+                }
+            }
 
-            // Convert back to ElevatorData or send through a channel, etc.
-            // let new_hall_requests: ElevatorData = serde_json::from_str(&hra_output_str).expect("Failed to deserialize hra_output");
-            // if transmit {
-            //     if let Err(e) = self  
-            //     .hall_requests_tx
-            //     .send(new_hall_requests.hall_requests) {
-            //         eprintln!("Failed to send hall requests from coordinator: {:?}", e);
-            //         std::process::exit(1);
-            //     }
-            // }
+            self.hall_requests_tx.send(local_hall_requests).expect("Failed to send hall requests to local elevator");
+            
 
         } else {
             // If the executable did not run successfully, you can handle the error
@@ -373,7 +372,7 @@ impl Coordinator{
         } 
     }
     
-    //Checks if hall button is already been handled (return false if not pressed)
+    // Checks if hall button is already been handled (return false if not pressed)
     fn check_hall_button(&self, floor: u8, call: u8) -> bool{
         if call == HALL_DOWN && !self.elevator_data.hall_requests[floor as usize][0] {
                 return false;
@@ -382,7 +381,7 @@ impl Coordinator{
                 return false;
         }
 
-        //Hall request has already been handled
+        // Hall request has already been handled
         else{
             return true;
         }

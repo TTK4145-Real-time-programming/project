@@ -39,6 +39,9 @@ use std::time::{Duration, Instant};
   * - When obstruction is activated and deactivated, it stops the system.
   * - Doesn't stop when there is no orders at all and it's moving.
   * 
+  * Things that must be fixed:
+  * 
+  * - Use state.behaviour instead of self.door_open for the door.
   */
 
 enum Event {
@@ -58,7 +61,8 @@ pub struct ElevatorFSM {
     hw_stop_button_rx: cbc::Receiver<bool>,
     
     // Coordinator channels
-    request_rx: cbc::Receiver<(u8, u8)>,
+    hall_requests_rx: cbc::Receiver<Vec<Vec<bool>>>,
+    cab_request_rx: cbc::Receiver<u8>,
     complete_order_tx: cbc::Sender<(u8, u8)>,
     state_tx: cbc::Sender<ElevatorState>,
 
@@ -80,7 +84,8 @@ impl ElevatorFSM {
         hw_door_light_tx: cbc::Sender<bool>,
         hw_obstruction_rx: cbc::Receiver<bool>,
         hw_stop_button_rx: cbc::Receiver<bool>,
-        request_rx: cbc::Receiver<(u8, u8)>,
+        hall_requests_rx: cbc::Receiver<Vec<Vec<bool>>>,
+        cab_request_rx: cbc::Receiver<u8>,
         complete_order_tx: cbc::Sender<(u8, u8)>,
         state_tx: cbc::Sender<ElevatorState>,
     ) -> ElevatorFSM {
@@ -90,7 +95,8 @@ impl ElevatorFSM {
             hw_door_light_tx,
             hw_obstruction_rx,
             hw_stop_button_rx,
-            request_rx,
+            hall_requests_rx,
+            cab_request_rx,
             complete_order_tx,
             state_tx,
             hall_requests: vec![vec![false; 2]; config.n_floors as usize],
@@ -119,13 +125,25 @@ impl ElevatorFSM {
                         }
                     }
                 }
-                recv(self.request_rx) -> request => {
-                    match request {
-                        Ok(request) => {
-                            self.handle_event(Event::RequestReceived(request.0, request.1));
+                recv(self.hall_requests_rx) -> hall_requests => {
+                    match hall_requests {
+                        Ok(hall_requests) => {
+                            self.hall_requests = hall_requests;
                         }
                         Err(e) => {
-                            eprintln!("Error receiving from request_rx: {}", e);
+                            eprintln!("Error receiving from hall_requests_rx: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                recv(self.cab_request_rx) -> request => {
+                    match request {
+                        Ok(request) => {
+                            self.state.cab_requests[request as usize] = true;
+                            //self.handle_event(Event::RequestReceived(request, CAB));
+                        }
+                        Err(e) => {
+                            eprintln!("Error receiving from cab_request_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -150,6 +168,13 @@ impl ElevatorFSM {
                     }
                 }
                 default(Duration::from_millis(100)) => {
+                    if self.state.behaviour == Idle {
+                        self.state.direction = self.choose_direction();
+                        if self.state.direction != Stop {
+                            self.state.behaviour = Moving;
+                            let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+                        }
+                    }
                     if self.door_open {
                         if self.obstruction {
                             self.door_timer = Instant::now() + Duration::from_secs(self.door_open_time);
@@ -379,5 +404,6 @@ impl ElevatorFSM {
         let _ = self.hw_motor_direction_tx.send(DIRN_STOP); // Don't like having this here
         self.door_timer = Instant::now() + Duration::from_millis(self.door_open_time);
         self.door_open = true;
+        self.state.behaviour = DoorOpen;
     }
 }

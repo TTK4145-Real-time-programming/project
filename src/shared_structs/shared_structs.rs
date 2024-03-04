@@ -4,10 +4,12 @@ use serde::Serialize;
 use serde::Deserialize;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(rename_all = "lowercase")]
 pub enum Behaviour {
+    #[serde(rename = "idle")]
     Idle,
+    #[serde(rename = "moving")]
     Moving,
+    #[serde(rename = "doorOpen")]
     DoorOpen,
 }
 
