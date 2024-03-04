@@ -18,9 +18,11 @@ use std::time::Duration;
  * - `elevator`:                Instance of `Elevator` for low-level hardware control.
  * - `thread_sleep_time`:       Duration in milliseconds the driver thread sleeps for in each loop iteration.
  * - `current_floor`:           The current floor the elevator is on.
+ * - `obstruction`:             Whether the obstruction sensor is active. Used to only send changes over `hw_obstruction_tx`.
+ * - `requests`:                A 2D vector representing the current state of the call buttons. Used to only send changes over `hw_request_tx`.
  * - `hw_motor_direction_rx`:   Receiver for motor direction commands.
  * - `hw_button_light_rx`:      Receiver for button light control commands.
- * - `hw_hall_request_tx`:      Sender for hall request events.
+ * - `hw_request_tx`:           Sender for request events.
  * - `hw_cab_request_tx`:       Sender for cabin request events.
  * - `hw_floor_sensor_tx`:      Sender for floor sensor events.
  * - `hw_door_light_rx`:        Receiver for door light control commands.
@@ -33,10 +35,10 @@ pub struct ElevatorDriver {
     thread_sleep_time: u64,
     current_floor: u8,
     obstruction: bool,
+    requests: Vec<Vec<bool>>,
     hw_motor_direction_rx: cbc::Receiver<u8>,
     hw_button_light_rx: cbc::Receiver<(u8, u8, bool)>,
-    hw_hall_request_tx: cbc::Sender<(u8, u8)>,
-    hw_cab_request_tx: cbc::Sender<Vec<bool>>,
+    hw_request_tx: cbc::Sender<(u8, u8)>,
     hw_floor_sensor_tx: cbc::Sender<u8>,
     hw_door_light_rx: cbc::Receiver<bool>,
     hw_obstruction_tx: cbc::Sender<bool>,
@@ -48,8 +50,7 @@ impl ElevatorDriver {
         config: &HardwareConfig,
         hw_motor_direction_rx: cbc::Receiver<u8>,
         hw_button_light_rx: cbc::Receiver<(u8, u8, bool)>,
-        hw_hall_request_tx: cbc::Sender<(u8, u8)>,
-        hw_cab_request_tx: cbc::Sender<Vec<bool>>,
+        hw_request_tx: cbc::Sender<(u8, u8)>,
         hw_floor_sensor_tx: cbc::Sender<u8>,
         hw_door_light_rx: cbc::Receiver<bool>,
         hw_obstruction_tx: cbc::Sender<bool>,
@@ -60,10 +61,10 @@ impl ElevatorDriver {
             thread_sleep_time: config.hw_thread_sleep_time,
             current_floor: u8::MAX,
             obstruction: false,
+            requests: vec![vec![false; 3]; config.n_floors as usize],
             hw_motor_direction_rx,
             hw_button_light_rx,
-            hw_hall_request_tx,
-            hw_cab_request_tx,
+            hw_request_tx,
             hw_floor_sensor_tx,
             hw_door_light_rx,
             hw_obstruction_tx,
@@ -72,6 +73,14 @@ impl ElevatorDriver {
     }
 
     pub fn run(mut self) {
+        // Reset system
+        for floor in 0..self.elevator.num_floors {
+            self.elevator.call_button_light(floor, HALL_UP, false);
+            self.elevator.call_button_light(floor, HALL_DOWN, false);
+            self.elevator.call_button_light(floor, CAB, false);
+        }
+        self.obstruction =  self.elevator.obstruction();
+
         loop {
             // Check if new floor is hit
             if let Some(floor) = self.elevator.floor_sensor() {
@@ -94,29 +103,52 @@ impl ElevatorDriver {
 
             // Check if any call buttons are pressed
             for floor in 0..self.elevator.num_floors {
-                if self.elevator.call_button(floor, HALL_UP) {
-                    self.hw_hall_request_tx.send((floor, 0)).unwrap();
+                if !self.requests[floor as usize][HALL_UP as usize] && self.elevator.call_button(floor, HALL_UP) {
+                    self.requests[floor as usize][HALL_UP as usize] = true;
+                    self.hw_request_tx.send((floor, HALL_UP)).unwrap();
                 }
-                if self.elevator.call_button(floor, HALL_DOWN) {
-                    self.hw_hall_request_tx.send((floor, 1)).unwrap();
+                if !self.requests[floor as usize][HALL_DOWN as usize] && self.elevator.call_button(floor, HALL_DOWN) {
+                    self.requests[floor as usize][HALL_DOWN as usize] = true;
+                    self.hw_request_tx.send((floor, HALL_DOWN)).unwrap();
                 }
-                if self.elevator.call_button(floor, CAB) {
-                    self.hw_cab_request_tx
-                        .send(vec![true; self.elevator.num_floors as usize])
-                        .unwrap();
+                if !self.requests[floor as usize][CAB as usize] && self.elevator.call_button(floor, CAB) {
+                    self.requests[floor as usize][CAB as usize] = true;
+                    self.hw_request_tx.send((floor, CAB)).unwrap();
                 }
             }
 
             // Handle incoming events
             cbc::select! {
                 recv(self.hw_motor_direction_rx) -> msg => {
-                    self.elevator.motor_direction(msg.unwrap());
+                    match msg {
+                        Ok(msg) => self.elevator.motor_direction(msg),
+                        Err(e) => {
+                            eprintln!("Error receiving from hw_motor_direction_rx: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
                 recv(self.hw_button_light_rx) -> msg => {
-                    self.elevator.call_button_light(msg.unwrap().0, msg.unwrap().1, msg.unwrap().2);
+                    match msg {
+                        Ok(msg) => {
+                            self.elevator.call_button_light(msg.0, msg.1, msg.2);  // Turn off button lamp
+                            self.requests[msg.0 as usize][msg.1 as usize] = msg.2; // Make new calls possible
+                        }
+                        Err(e) => {
+                            eprintln!("Error receiving from hw_button_light_rx: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
                 recv(self.hw_door_light_rx) -> msg => {
-                    self.elevator.door_light(msg.unwrap());
+                    match msg {
+                        Ok(msg) => self.elevator.door_light(msg),
+                        Err(e) => {
+                            eprintln!("Error receiving from hw_door_light_rx: {}", e);
+                            std::process::exit(1);
+                        }
+                    }   
+                    
                 }
                 default(Duration::from_millis(self.thread_sleep_time)) => {}
             }

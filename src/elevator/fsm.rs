@@ -1,5 +1,5 @@
 use crate::config::ElevatorConfig;
-use crate::shared_structs::ElevatorState;
+use crate::shared_structs::{ElevatorState, Direction, Behaviour};
 use crossbeam_channel as cbc;
 use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
 use std::time::{Duration, Instant};
@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
  * - `hw_door_light_tx`:        Controls the door's open/close light indicator.
  * - `hw_obstruction_rx`:       Receives obstruction detection signals (e.g., if something blocks the door).
  * - `hw_stop_button_rx`:       Receives stop button press signals.
- * - `hw_cab_request_rx`:       Receives cabin request inputs (e.g., buttons pressed inside the elevator).
+ * - `request_rx`:       Receives cabin request inputs (e.g., buttons pressed inside the elevator).
  * - `hall_request_rx`:         Receives hall request inputs (e.g., buttons pressed on each floor).
  * - `complete_order_tx`:       Sends notifications when a request is completed.
  * - `state_tx`:                Broadcasts the current state of the elevator (e.g., current floor, direction).
@@ -43,10 +43,9 @@ pub struct ElevatorFSM {
     hw_door_light_tx: cbc::Sender<bool>,
     hw_obstruction_rx: cbc::Receiver<bool>,
     hw_stop_button_rx: cbc::Receiver<bool>,
-    hw_cab_request_rx: cbc::Receiver<Vec<bool>>,
-
+    
     // Coordinator channels
-    hall_request_rx: cbc::Receiver<Vec<Vec<bool>>>,
+    request_rx: cbc::Receiver<(u8, u8)>,
     complete_order_tx: cbc::Sender<(u8, u8)>,
     state_tx: cbc::Sender<ElevatorState>,
 
@@ -68,8 +67,7 @@ impl ElevatorFSM {
         hw_door_light_tx: cbc::Sender<bool>,
         hw_obstruction_rx: cbc::Receiver<bool>,
         hw_stop_button_rx: cbc::Receiver<bool>,
-        hw_cab_request_rx: cbc::Receiver<Vec<bool>>,
-        hall_request_rx: cbc::Receiver<Vec<Vec<bool>>>,
+        request_rx: cbc::Receiver<(u8, u8)>,
         complete_order_tx: cbc::Sender<(u8, u8)>,
         state_tx: cbc::Sender<ElevatorState>,
     ) -> ElevatorFSM {
@@ -79,8 +77,7 @@ impl ElevatorFSM {
             hw_door_light_tx,
             hw_obstruction_rx,
             hw_stop_button_rx,
-            hw_cab_request_rx,
-            hall_request_rx,
+            request_rx,
             complete_order_tx,
             state_tx,
             hall_requests: vec![vec![false; 2]; config.n_floors as usize],
@@ -103,50 +100,52 @@ impl ElevatorFSM {
                 recv(self.hw_floor_sensor_rx) -> floor => {
                     match floor {
                         Ok(f) => self.handle_event(Event::FloorReached(f)),
-                        Err(e) => eprintln!("Error receiving from hw_floor_sensor_rx: {}", e),
+                        Err(e) => {
+                            eprintln!("Error receiving from hw_floor_sensor_rx: {}", e);
+                            std::process::exit(1);
+                        }
                     }
                 }
-                recv(self.hall_request_rx) -> hall_requests => {
-                    match hall_requests {
-                        Ok(requests) => {
-                            self.hall_requests = requests;
-                            if self.state.behaviour == "idle" {
+                recv(self.request_rx) -> request => {
+                    match request {
+                        Ok(request) => {
+                            if request.1 == CAB {
+                                self.state.cab_requests[request.0 as usize] = true;    
+                            }
+                            else {
+                                self.hall_requests[request.0 as usize][request.1 as usize] = true;
+                            }
+                            if self.state.behaviour == Behaviour::Idle {
                                 let next_direction = self.choose_direction(self.state.floor);
-                                if next_direction != self.state.direction {
-                                    self.state.direction = next_direction;
+                                if next_direction != self.state.direction.to_u8() {
+                                    self.state.direction = Direction::from(next_direction);
                                     let _ = self.hw_motor_direction_tx.send(next_direction);
                                 }
                             }
                         }
-                        Err(e) => eprintln!("Error receiving from hall_request_rx: {}", e),
-                    }
-                }
-                recv(self.hw_cab_request_rx) -> cab_requests => {
-                    match cab_requests {
-                        Ok(requests) => {
-                            self.state.cab_requests = requests;
-                            if self.state.behaviour == "idle" {
-                                let next_direction = self.choose_direction(self.state.floor);
-                                if next_direction != self.state.direction {
-                                    self.state.direction = next_direction;
-                                    let _ = self.hw_motor_direction_tx.send(next_direction);
-                                }
-                            }
+                        Err(e) => {
+                            eprintln!("Error receiving from request_rx: {}", e);
+                            std::process::exit(1);
                         }
-                        Err(e) => eprintln!("Error receiving from hw_cab_request_rx: {}", e),
                     }
                 }
                 recv(self.hw_stop_button_rx) -> stop_button => {
                     match stop_button {
                         Ok(true) => self.handle_event(Event::StopPressed),
                         Ok(false) => (),
-                        Err(e) => eprintln!("Error receiving from hw_stop_button_rx: {}", e),
+                        Err(e) => {
+                            eprintln!("Error receiving from hw_stop_button_rx: {}", e);
+                            std::process::exit(1);
+                        }
                     }
                 }
                 recv(self.hw_obstruction_rx) -> obstruction => {
                     match obstruction {
                         Ok(value) => self.obstruction = value,
-                        Err(e) => eprintln!("Error receiving from hw_obstruction_rx: {}", e),
+                        Err(e) => {
+                            eprintln!("Error receiving from hw_obstruction_rx: {}", e);
+                            std::process::exit(1);
+                        }
                     }
                 }
                 default(Duration::from_millis(100)) => {
@@ -174,8 +173,8 @@ impl ElevatorFSM {
 
                 // No orders at this floor, find next direction
                 if !self.door_open {
-                    self.state.direction = self.choose_direction(self.state.floor);
-                    let _ = self.hw_motor_direction_tx.send(self.state.direction);
+                    self.state.direction = Direction::from(self.choose_direction(self.state.floor));
+                    let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
                 }
             }
             Event::StopPressed => {
@@ -183,28 +182,28 @@ impl ElevatorFSM {
             }
             Event::DoorClosed => {
                 self.complete_orders(self.state.floor);
-                self.state.direction = self.choose_direction(self.state.floor);
-                let _ = self.hw_motor_direction_tx.send(self.state.direction);
+                self.state.direction = Direction::from(self.choose_direction(self.state.floor));
+                let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
             }
         }
     }
 
     fn choose_direction(&mut self, floor: u8) -> u8 {
         // Continue in current direction of travel if there are any further orders in that direction
-        if self.has_orders_in_direction(floor, self.state.direction) {
-            return self.state.direction;
+        if self.has_orders_in_direction(floor, self.state.direction.to_u8()) {
+            return self.state.direction.to_u8();
         }
 
         // Otherwise change direction if there are orders in the opposite direction
-        if self.state.direction == DIRN_UP && self.has_orders_in_direction(floor, DIRN_DOWN) {
+        if self.state.direction.to_u8() == DIRN_UP && self.has_orders_in_direction(floor, DIRN_DOWN) {
             return DIRN_DOWN;
-        } else if self.state.direction == DIRN_DOWN && self.has_orders_in_direction(floor, DIRN_UP)
+        } else if self.state.direction.to_u8() == DIRN_DOWN && self.has_orders_in_direction(floor, DIRN_UP)
         {
             return DIRN_UP;
         }
 
         // Start moving if necessary
-        if self.state.direction == DIRN_STOP {
+        if self.state.direction.to_u8() == DIRN_STOP {
             if self.has_orders_in_direction(floor, DIRN_UP) {
                 return DIRN_UP;
             } else if self.has_orders_in_direction(floor, DIRN_DOWN) {
@@ -267,7 +266,7 @@ impl ElevatorFSM {
         }
 
         // Remove hall up orders.
-        if (self.state.direction == DIRN_UP || self.state.direction == DIRN_STOP || is_bottom_floor)
+        if (self.state.direction.to_u8() == DIRN_UP || self.state.direction.to_u8() == DIRN_STOP || is_bottom_floor)
             && self.hall_requests[floor as usize][HALL_UP as usize]
         {
             // Open the door
@@ -281,7 +280,7 @@ impl ElevatorFSM {
         }
 
         // Remove hall down orders.
-        if (self.state.direction == DIRN_DOWN || self.state.direction == DIRN_STOP || is_top_floor)
+        if (self.state.direction.to_u8() == DIRN_DOWN || self.state.direction.to_u8() == DIRN_STOP || is_top_floor)
             && self.hall_requests[floor as usize][HALL_DOWN as usize]
         {
             // Open the door
