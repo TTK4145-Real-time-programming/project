@@ -6,6 +6,7 @@ mod elevator;
 mod network;
 mod config;
 mod updateData;
+mod shared_structs;
 
 /* Main */
 fn main() -> std::io::Result<()> {

@@ -1,15 +1,9 @@
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
-use std::collections::HashMap;
 use driver_rust::elevio::elev::Elevator;
 use crossbeam_channel as cbc;
 use std::sync::{Arc, Mutex};
 use network_rust::udpnet::peers::PeerUpdate;
-
-use crate::elevator::fsm::Behaviour;
-use crate::elevator::fsm::ElevatorFSM;
-//use crate::shared_structs::{ElevatorData, ElevatorState};
-
-
+use crate::shared_structs::{ElevatorData, ElevatorState};
 
 
 // Defining events the thread will trigger on
@@ -29,60 +23,6 @@ pub enum MergeEvent{
     MergeNew,
     NoMerge,
 }
-
-
-
-//defining datatypes for the structs
-type BooleanPair = [bool; 2];
-enum Direction{
-    Up,
-    Down,
-    Stop,
-}
-
-// Defining struct for Elevator state
-pub struct ElevatorState{
-    behaviour: Behaviour,
-    floor: Option<u8>,
-    direction: u8, 
-    cab_requests: [bool; 4], //TODO: This need to defined from factory
-}
-
-// Combining Elevator state with ID
-type States = HashMap<String, ElevatorState>;
-
-
-// Adding each elevators to one struct 
-pub struct ElevatorData{
-    version: u64,
-    hall_requests: Vec<BooleanPair>,
-    states: States,
-}
-
-
-impl ElevatorData{
-    //Initlizing status based local elevator
-    pub fn init(floors: u8, id: String, elevator: &ElevatorFSM)-> Result<Self, std::io::Error>{
-        //Adding local elevator to list
-        let mut states = States::new();
-        let elevator_state = ElevatorState{
-            behaviour: elevator.get_behaviour(),
-            floor: elevator.get_floor(),
-            direction: elevator.get_direction(),
-            cab_requests: [false; 4],
-        };
-        
-        states.insert(id, elevator_state);
-        
-        // Constructing elevatorData
-        Ok(ElevatorData{
-            version: 0,
-            hall_requests: vec![[false; 2]; floors.into()],
-            states: states,
-        })
-    }
-}
-
 
 
 // Request assigner 
