@@ -1,7 +1,5 @@
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
-use driver_rust::elevio::elev::Elevator;
 use crossbeam_channel as cbc;
-use std::sync::{Arc, Mutex};
 use network_rust::udpnet::peers::PeerUpdate;
 use crate::shared_structs::{ElevatorData, ElevatorState};
 
@@ -26,11 +24,10 @@ pub enum MergeEvent{
 
 
 // Request assigner 
-pub struct Cordinator{
+pub struct Coordinator{
     elevator_data: ElevatorData, 
-    local_elevator: Elevator,
     local_id: String,
-    num_floors: u8,
+    n_floors: u8,
     
     // Hardware channels
     hw_button_light_tx: cbc::Sender<(u8,u8,bool)>,
@@ -43,18 +40,17 @@ pub struct Cordinator{
 
     //Network thread channels
     data_send_tx: cbc::Sender<ElevatorData>,
-    peer_update_rx: cbc::Receiver<PeerUpdate>,
     data_recv_rx: cbc::Receiver<ElevatorData>, 
+    peer_update_rx: cbc::Receiver<PeerUpdate>,
 }
 
 
-impl Cordinator{
-    //Initilizing Request assigner strcuct and puts it in a thread (?)
-    pub fn init(
+impl Coordinator{
+    //Initilizing Request assigner struct and puts it in a thread (?)
+    pub fn new(
         elevator_data: ElevatorData,
-        elevator_driver: Elevator, 
         local_id: String,
-        num_floors: u8,
+        n_floors: u8,
 
         hw_button_light_tx: cbc::Sender<(u8,u8,bool)>,
         hw_hall_request_rx: cbc::Receiver<(u8,u8)>,
@@ -64,16 +60,15 @@ impl Cordinator{
         complete_order_rx: cbc::Receiver<(u8, u8)>,
 
         data_send_tx: cbc::Sender<ElevatorData>,
-        peer_update_rx: cbc::Receiver<PeerUpdate>,
         data_recv_rx: cbc::Receiver<ElevatorData>,
+        peer_update_rx: cbc::Receiver<PeerUpdate>,
     ) -> Result<Self, std::io::Error>{
         
-        Ok(Cordinator{
+        Ok(Coordinator{
             //Local elevator
             elevator_data: elevator_data,
-            local_elevator: elevator_driver,
             local_id: local_id,
-            num_floors: num_floors,
+            n_floors: n_floors,
 
             //Hardware channels
             hw_button_light_tx: hw_button_light_tx,
@@ -94,8 +89,8 @@ impl Cordinator{
     // ---- main functions -----
 
     //Main run function
-    pub fn run(& mut self, assigner: Arc<Mutex<Self>>) { 
-        // Main cordinator loop
+    pub fn run(&mut self) { 
+        // Main Coordinator loop
         loop {
             let event: GlobalEvent = self.wait_for_event();
             self.handle_event(event);
@@ -115,7 +110,7 @@ impl Cordinator{
                     if merge_type == MergeEvent::MergeNew {
                         //Updating lights
                         let new_hall_request = elevator_data.hall_requests.clone();
-                        for floor in 0..self.num_floors {
+                        for floor in 0..self.n_floors {
                             if new_hall_request[floor as usize][HALL_DOWN as usize] != self.elevator_data.hall_requests[floor as usize][HALL_DOWN as usize] {
                                 self.update_lights((floor, HALL_DOWN, new_hall_request[floor as usize][HALL_DOWN as usize]));
                                 }
@@ -165,7 +160,7 @@ impl Cordinator{
                 // Checking for new cab requests
                 let current_cab_requests = &self.elevator_data.states[&self.local_id].cab_requests;
 
-                for floor in 0..self.num_floors {
+                for floor in 0..self.n_floors {
                     if current_cab_requests[floor as usize] != elevator_state.cab_requests[floor as usize] {
                         //Updating cab button lights with new changes from FSM
                         self.update_lights((floor, CAB, current_cab_requests[floor as usize]));
@@ -203,7 +198,7 @@ impl Cordinator{
                 return GlobalEvent::NewPackage(elevator_data);
                 },
                 Err(e) => {
-                    println!("Error extracting network package in cordinator\n");
+                    println!("Error extracting network package in coordinator: {:?}\r\n", e);
                 },
                }
             },
@@ -215,7 +210,7 @@ impl Cordinator{
                     return GlobalEvent::NewPeerUpdate(peer_update);
                  },
                  Err(e) => {
-                     println!("Error extracting peer update package in cordinator\n");
+                     println!("Error extracting peer update package in coordinator: {:?}\r\n", e);
                  },
                 }
              },
@@ -227,7 +222,7 @@ impl Cordinator{
                     return GlobalEvent::NewButtonRequest(new_button_request);
                  },
                  Err(e) => {
-                     println!("Error extracting button package in cordinator\n");
+                     println!("Error extracting button package in coordinator: {:?}\r\n", e);
                  },
                 }
              },
@@ -239,7 +234,7 @@ impl Cordinator{
                     return GlobalEvent::NewElevatorState(elevator_state);
                  },
                  Err(e) => {
-                     println!("Error extracting network package in cordinator\n");
+                     println!("Error extracting network package in coordinator: {:?}\r\n", e);
                  },
                 }
              },
@@ -251,7 +246,7 @@ impl Cordinator{
                     return GlobalEvent::CompletedOrder(finish_order);
                  },
                  Err(e) => {
-                     println!("Error extracting completed order from local elevator in cordinator\n");
+                     println!("Error extracting completed order from local elevator in coordinator: {:?}\r\n", e);
                  },
                 }
              }
@@ -263,7 +258,7 @@ impl Cordinator{
     fn update_lights(&self, light: (u8,u8,bool)){
         //Sending change in lights
         if let Err(e) = self.hw_button_light_tx.send(light) {
-            eprintln!("Failed to send light command to light thread from cordinator: {:?}", e);
+            eprintln!("Failed to send light command to light thread from coordinator: {:?}", e);
         }
     }
 
