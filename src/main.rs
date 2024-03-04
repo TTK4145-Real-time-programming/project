@@ -47,7 +47,7 @@ fn main() -> std::io::Result<()> {
     let _n_floors = config.hardware.n_floors.clone();
     let _elevator_data = ElevatorData::new(_n_floors.clone());
 
-    // Start the hardware module
+    // Start the hardware module 
     let elevator_driver = ElevatorDriver::new(
         &config.hardware,
         hw_motor_direction_rx,
