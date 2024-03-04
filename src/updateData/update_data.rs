@@ -127,9 +127,6 @@ impl Cordinator{
         peer_update_rx: cbc::Receiver<PeerUpdate>,
         data_recv_rx: cbc::Receiver<ElevatorData>,
     ) -> Result<Self, std::io::Error>{
-
-        //Making channel for button thread
-        let (button_tx, button_rx) = cbc::unbounded::<(u8,u8)>();
         
         Ok(Cordinator{
             //Local elevator
@@ -352,8 +349,6 @@ impl Cordinator{
         } 
     }
     
-    // --------------------- Button related ------------------------
-    
     //Checks if hall button is already been handled (return false if not pressed)
     fn check_hall_button(&self, floor: u8, call: u8) -> bool{
         if call == HALL_DOWN && !self.elevator_data.hall_requests[floor as usize][0] {
@@ -368,56 +363,7 @@ impl Cordinator{
             return true;
         }
     }
-
-
-    // pub fn wait_for_button(&self) -> GlobalEvent{
-    //     // Checking for all button presses and if they are already handled
-    //     for floor in 0..self.num_floors {
-    //         //Checking cab buttons 
-    //         if !self.check_cab_button(floor) 
-    //         && self.local_elevator.call_button(floor, CAB)
-    //         {
-    //             return GlobalEvent::NewButtonRequest((floor, CAB));
-    //         }
-
-    //         //Checking hall buttons
-    //         if !self.check_hall_button(floor, HALL_UP) 
-    //         && self.local_elevator.call_button(floor, HALL_UP)
-    //         {
-    //             return GlobalEvent::NewButtonRequest((floor, HALL_UP));
-    //         }
-    //         if !self.check_hall_button(floor, HALL_DOWN) 
-    //         && self.local_elevator.call_button(floor, HALL_DOWN)
-    //         {
-    //             return GlobalEvent::NewButtonRequest((floor, HALL_DOWN));
-    //         }
-    //     }
-
-    //     return GlobalEvent::NoEvent;
-    // }
-
-    // //Checks if cab button is already pressed (returns false if not pressed) 
-    // fn check_cab_button(&self, floor: u8) -> bool{
-    //     match self.elevator_data.states.get(&self.local_id) {
-    //         Some(elevator_state) => {
-    //             if !elevator_state.cab_requests[floor as usize] {
-    //                 //Button has not been handled
-    //                 return false;
-    //             }
-    //             else{
-    //                 //Button has already been handled
-    //                 return true;
-    //             }
-    //         },
-    //         // This should NEVER happen, implmented for cosmic bit-flip
-    //         None => {
-    //             print!("Elevator with id: {} not found", self.local_id);
-    //             return false;
-    //         }
-    //     }
-    // }
-
-    }
+}
 
 
 
