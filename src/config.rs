@@ -1,6 +1,12 @@
+/***************************************/
+/*        3rd party libraries          */
+/***************************************/
 use serde::Deserialize;
 use std::fs;
 
+/***************************************/
+/*       Public data structures        */
+/***************************************/
 #[derive(Deserialize, Clone)]
 pub struct Config {
     pub network: NetworkConfig,
@@ -28,6 +34,9 @@ pub struct HardwareConfig {
     pub hw_thread_sleep_time: u64,
 }
 
+/***************************************/
+/*             Public API              */
+/***************************************/
 pub fn load_config() -> Config {
     let config_str = fs::read_to_string("config.toml").expect("Failed to read configuration file");
     toml::from_str(&config_str).expect("Failed to parse configuration file")
