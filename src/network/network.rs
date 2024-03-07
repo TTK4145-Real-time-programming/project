@@ -1,13 +1,3 @@
-use std::env;
-use std::net;
-use std::process;
-use std::thread::Builder;
-
-use crate::config::NetworkConfig;
-use crate::shared::ElevatorData;
-use crossbeam_channel as cbc;
-use network_rust::udpnet;
-
 /**
  * Facilitates network communications for the elevator system.
  *
@@ -31,6 +21,25 @@ use network_rust::udpnet;
  *
  */
 
+/***************************************/
+/*        3rd party libraries          */
+/***************************************/
+use crossbeam_channel as cbc;
+use network_rust::udpnet;
+use std::thread::Builder;
+use std::process;
+use std::env;
+use std::net;
+
+/***************************************/
+/*           Local modules             */
+/***************************************/
+use crate::config::NetworkConfig;
+use crate::shared::ElevatorData;
+
+/***************************************/
+/*             Public API              */
+/***************************************/
 pub struct Network {
     pub id: String,
 }
