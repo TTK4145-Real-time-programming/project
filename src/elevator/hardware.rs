@@ -1,9 +1,3 @@
-use crate::config::HardwareConfig;
-use crossbeam_channel as cbc;
-use driver_rust::elevio::elev::Elevator;
-use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
-use std::time::Duration;
-
 /**
  * # Elevator Driver
  * Represents an Elevator Driver that interfaces with the physical elevator hardware.
@@ -23,13 +17,34 @@ use std::time::Duration;
  * - `hw_motor_direction_rx`:   Receiver for motor direction commands.
  * - `hw_button_light_rx`:      Receiver for button light control commands.
  * - `hw_request_tx`:           Sender for request events.
- * - `hw_cab_request_tx`:       Sender for cabin request events.
  * - `hw_floor_sensor_tx`:      Sender for floor sensor events.
  * - `hw_door_light_rx`:        Receiver for door light control commands.
  * - `hw_obstruction_tx`:       Sender for obstruction events.
  * - `hw_stop_button_tx`:       Sender for stop button events.
  */
 
+/***************************************/
+/*        3rd party libraries          */
+/***************************************/
+use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
+use driver_rust::elevio::elev::Elevator;
+use crossbeam_channel as cbc;
+use std::time::Duration;
+
+/***************************************/
+/*           Local modules             */
+/***************************************/
+use crate::config::HardwareConfig;
+use crate::unwrap_or_exit;
+
+/***************************************/
+/*             Constants               */
+/***************************************/
+const HW_NUM_REQUEST_TYPES: usize = 3;
+
+/***************************************/
+/*             Public API              */
+/***************************************/
 pub struct ElevatorDriver {
     elevator: Elevator,
     thread_sleep_time: u64,
@@ -57,11 +72,11 @@ impl ElevatorDriver {
         hw_stop_button_tx: cbc::Sender<bool>,
     ) -> ElevatorDriver {
         ElevatorDriver {
-            elevator: Elevator::init(&config.driver_address, config.n_floors).unwrap(),
+            elevator: unwrap_or_exit!(Elevator::init(&config.driver_address, config.n_floors)),
             thread_sleep_time: config.hw_thread_sleep_time,
             current_floor: u8::MAX,
             obstruction: false,
-            requests: vec![vec![false; 3]; config.n_floors as usize],
+            requests: vec![vec![false; HW_NUM_REQUEST_TYPES]; config.n_floors as usize],
             hw_motor_direction_rx,
             hw_button_light_rx,
             hw_request_tx,
@@ -79,41 +94,54 @@ impl ElevatorDriver {
             self.elevator.call_button_light(floor, HALL_DOWN, false);
             self.elevator.call_button_light(floor, CAB, false);
         }
-        self.obstruction =  self.elevator.obstruction();
+        self.obstruction = self.elevator.obstruction();
 
+        // Main loop
         loop {
             // Check if new floor is hit
             if let Some(floor) = self.elevator.floor_sensor() {
                 if floor != self.current_floor {
                     self.current_floor = floor;
-                    self.hw_floor_sensor_tx.send(floor).unwrap();
+                    match self.hw_floor_sensor_tx.send(floor) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            eprintln!("ERROR - hw_floor_sensor_tx: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
             }
 
             // Check if stop button is pressed
             if self.elevator.stop_button() {
-                self.hw_stop_button_tx.send(true).unwrap();
+                unwrap_or_exit!(self.hw_stop_button_tx.send(true));
             }
 
             // Check if obstruction is toggled
             if self.elevator.obstruction() != self.obstruction {
                 self.obstruction = !self.obstruction;
-                self.hw_obstruction_tx.send(self.obstruction).unwrap();
+                unwrap_or_exit!(self.hw_obstruction_tx.send(self.obstruction));
             }
 
             // Check if any call buttons are pressed
             for floor in 0..self.elevator.num_floors {
-                if !self.requests[floor as usize][HALL_UP as usize] && self.elevator.call_button(floor, HALL_UP) {
+                if !self.requests[floor as usize][HALL_UP as usize]
+                    && self.elevator.call_button(floor, HALL_UP)
+                {
                     self.requests[floor as usize][HALL_UP as usize] = true;
-                    self.hw_request_tx.send((floor, HALL_UP)).unwrap();
+                    unwrap_or_exit!(self.hw_request_tx.send((floor, HALL_UP)));
                 }
-                if !self.requests[floor as usize][HALL_DOWN as usize] && self.elevator.call_button(floor, HALL_DOWN) {
+                if !self.requests[floor as usize][HALL_DOWN as usize]
+                    && self.elevator.call_button(floor, HALL_DOWN)
+                {
                     self.requests[floor as usize][HALL_DOWN as usize] = true;
-                    self.hw_request_tx.send((floor, HALL_DOWN)).unwrap();
+                    unwrap_or_exit!(self.hw_request_tx.send((floor, HALL_DOWN)));
                 }
-                if !self.requests[floor as usize][CAB as usize] && self.elevator.call_button(floor, CAB) {
+                if !self.requests[floor as usize][CAB as usize]
+                    && self.elevator.call_button(floor, CAB)
+                {
                     self.requests[floor as usize][CAB as usize] = true;
-                    self.hw_request_tx.send((floor, CAB)).unwrap();
+                    unwrap_or_exit!(self.hw_request_tx.send((floor, CAB)));
                 }
             }
 
@@ -123,7 +151,7 @@ impl ElevatorDriver {
                     match msg {
                         Ok(msg) => self.elevator.motor_direction(msg),
                         Err(e) => {
-                            eprintln!("Error receiving from hw_motor_direction_rx: {}", e);
+                            eprintln!("ERROR - hw_motor_direction_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -135,7 +163,7 @@ impl ElevatorDriver {
                             self.requests[msg.0 as usize][msg.1 as usize] = msg.2; // Make new calls possible
                         }
                         Err(e) => {
-                            eprintln!("Error receiving from hw_button_light_rx: {}", e);
+                            eprintln!("ERROR - hw_button_light_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -144,11 +172,11 @@ impl ElevatorDriver {
                     match msg {
                         Ok(msg) => self.elevator.door_light(msg),
                         Err(e) => {
-                            eprintln!("Error receiving from hw_door_light_rx: {}", e);
+                            eprintln!("ERROR - hw_door_light_rx: {}", e);
                             std::process::exit(1);
                         }
-                    }   
-                    
+                    }
+
                 }
                 default(Duration::from_millis(self.thread_sleep_time)) => {}
             }

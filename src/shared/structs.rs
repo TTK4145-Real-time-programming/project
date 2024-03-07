@@ -1,8 +1,14 @@
-use driver_rust::elevio::elev::{DIRN_UP, DIRN_DOWN, DIRN_STOP};
-use std::collections::HashMap;
-use serde::Serialize;
+/***************************************/
+/*        3rd party libraries          */
+/***************************************/
+use driver_rust::elevio::elev::{DIRN_DOWN, DIRN_STOP, DIRN_UP};
 use serde::Deserialize;
+use serde::Serialize;
+use std::collections::HashMap;
 
+/***************************************/
+/*       Public data structures        */
+/***************************************/
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Behaviour {
     #[serde(rename = "idle")]
