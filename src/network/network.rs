@@ -4,7 +4,7 @@ use std::process;
 use std::thread::Builder;
 
 use crate::config::NetworkConfig;
-use crate::shared_structs::ElevatorData;
+use crate::shared::ElevatorData;
 use crossbeam_channel as cbc;
 use network_rust::udpnet;
 
@@ -24,10 +24,10 @@ use network_rust::udpnet;
  *
  * # Constructor arguments
  * - `config`:                  Network configuration settings.
- * - `custom_data_send_rx`:     Receiver for elevator data to be sent.
- * - `custom_data_recv_tx`:     Sender for forwarding received elevator data.
- * - `peer_update_tx`:          Sender for forwarding received peer updates.
- * - `peer_tx_enable_rx`:       Receiver to enable/disable peer ID broadcasting.
+ * - `custom_net_data_send_rx`:     Receiver for elevator data to be sent.
+ * - `custom_net_data_recv_tx`:     Sender for forwarding received elevator data.
+ * - `net_peer_update_tx`:          Sender for forwarding received peer updates.
+ * - `net_peer_tx_enable_rx`:       Receiver to enable/disable peer ID broadcasting.
  *
  */
 
@@ -38,10 +38,10 @@ pub struct Network {
 impl Network {
     pub fn new(
         config: &NetworkConfig,
-        custom_data_send_rx: cbc::Receiver<ElevatorData>,
-        custom_data_recv_tx: cbc::Sender<ElevatorData>,
-        peer_update_tx: cbc::Sender<udpnet::peers::PeerUpdate>,
-        peer_tx_enable_rx: cbc::Receiver<bool>,
+        custom_net_data_send_rx: cbc::Receiver<ElevatorData>,
+        custom_net_data_recv_tx: cbc::Sender<ElevatorData>,
+        net_peer_update_tx: cbc::Sender<udpnet::peers::PeerUpdate>,
+        net_peer_tx_enable_rx: cbc::Receiver<bool>,
     ) -> std::io::Result<Network> {
         let id = if env::args().len() > 1 {
             env::args().nth(1).unwrap()
@@ -62,7 +62,7 @@ impl Network {
         let peer_tx_thread = Builder::new().name("peer_tx".into());
         peer_tx_thread
             .spawn(move || {
-                if udpnet::peers::tx(peer_port, id_tx, peer_tx_enable_rx).is_err() {
+                if udpnet::peers::tx(peer_port, id_tx, net_peer_tx_enable_rx).is_err() {
                     process::exit(1);
                 }
             })
@@ -72,7 +72,7 @@ impl Network {
         let peer_rx_thread = Builder::new().name("peer_rx".into());
         peer_rx_thread
             .spawn(move || {
-                if udpnet::peers::rx(peer_port, peer_update_tx).is_err() {
+                if udpnet::peers::rx(peer_port, net_peer_update_tx).is_err() {
                     process::exit(1);
                 }
             })
@@ -82,7 +82,7 @@ impl Network {
         let data_tx_thread = Builder::new().name("data_tx".into());
         data_tx_thread
             .spawn(move || {
-                if udpnet::bcast::tx(msg_port, custom_data_send_rx).is_err() {
+                if udpnet::bcast::tx(msg_port, custom_net_data_send_rx).is_err() {
                     process::exit(1);
                 }
             })
@@ -92,7 +92,7 @@ impl Network {
         let data_rx_thread = Builder::new().name("data_rx".into());
         data_rx_thread
             .spawn(move || {
-                if udpnet::bcast::rx(msg_port, custom_data_recv_tx).is_err() {
+                if udpnet::bcast::rx(msg_port, custom_net_data_recv_tx).is_err() {
                     process::exit(1);
                 }
             })
