@@ -1,122 +1,140 @@
+/***************************************/
+/*        3rd party libraries          */
+/***************************************/
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
-use crossbeam_channel as cbc;
 use network_rust::udpnet::peers::PeerUpdate;
-use crate::shared_structs::{ElevatorData, ElevatorState};
+use std::{collections::HashMap, process::Command};
+use crossbeam_channel as cbc;
+use std::time::Duration;
 
+/***************************************/
+/*           Local modules             */
+/***************************************/
+use crate::shared::{Behaviour, Direction, ElevatorData, ElevatorState};
 
-// Defining events the thread will trigger on
-pub enum GlobalEvent {
+/***************************************/
+/*               Enums                 */
+/***************************************/
+enum Event {
     NewPackage(ElevatorData),
-    NewButtonRequest((u8, u8)),
+    RequestReceived((u8, u8)),
     NewPeerUpdate(PeerUpdate),
     NewElevatorState(ElevatorState),
-    CompletedOrder((u8, u8)),
+    OrderComplete((u8, u8)),
     NoEvent,
 }
 
-// Enum for mergiing of ElevetorData
 #[derive(PartialEq)]
-pub enum MergeEvent{
-    MergeConflict,
-    MergeNew,
-    NoMerge,
+enum MergeType {
+    Conflict,
+    Inherit,
 }
 
-
-// Request assigner 
-pub struct Coordinator{
-    elevator_data: ElevatorData, 
+/***************************************/
+/*             Public API              */
+/***************************************/
+pub struct Coordinator {
+    // Private fields
+    elevator_data: ElevatorData,
     local_id: String,
     n_floors: u8,
-    
+
     // Hardware channels
-    hw_button_light_tx: cbc::Sender<(u8,u8,bool)>,
-    hw_hall_request_rx: cbc::Receiver<(u8,u8)>,
+    hw_button_light_tx: cbc::Sender<(u8, u8, bool)>,
+    hw_request_rx: cbc::Receiver<(u8, u8)>,
 
-    //Local elevaotr com channels
-    hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
-    state_rx: cbc::Receiver<ElevatorState>,
-    complete_order_rx: cbc::Receiver<(u8, u8)>,
+    // FSM channels
+    fsm_hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
+    fsm_cab_request_tx: cbc::Sender<u8>,
+    fsm_state_rx: cbc::Receiver<ElevatorState>,
+    fsm_order_complete_rx: cbc::Receiver<(u8, u8)>,
 
-    //Network thread channels
-    data_send_tx: cbc::Sender<ElevatorData>,
-    data_recv_rx: cbc::Receiver<ElevatorData>, 
-    peer_update_rx: cbc::Receiver<PeerUpdate>,
+    // Network channels
+    net_data_send_tx: cbc::Sender<ElevatorData>,
+    net_data_recv_rx: cbc::Receiver<ElevatorData>,
+    net_peer_update_rx: cbc::Receiver<PeerUpdate>,
 }
 
-
-impl Coordinator{
-    //Initilizing Request assigner struct and puts it in a thread (?)
+impl Coordinator {
     pub fn new(
         elevator_data: ElevatorData,
         local_id: String,
         n_floors: u8,
 
-        hw_button_light_tx: cbc::Sender<(u8,u8,bool)>,
-        hw_hall_request_rx: cbc::Receiver<(u8,u8)>,
+        hw_button_light_tx: cbc::Sender<(u8, u8, bool)>,
+        hw_request_rx: cbc::Receiver<(u8, u8)>,
 
-        hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
-        state_rx: cbc::Receiver<ElevatorState>,
-        complete_order_rx: cbc::Receiver<(u8, u8)>,
+        fsm_hall_requests_tx: cbc::Sender<Vec<Vec<bool>>>,
+        fsm_cab_request_tx: cbc::Sender<u8>,
+        fsm_state_rx: cbc::Receiver<ElevatorState>,
+        fsm_order_complete_rx: cbc::Receiver<(u8, u8)>,
 
-        data_send_tx: cbc::Sender<ElevatorData>,
-        data_recv_rx: cbc::Receiver<ElevatorData>,
-        peer_update_rx: cbc::Receiver<PeerUpdate>,
-    ) -> Result<Self, std::io::Error>{
-        
-        Ok(Coordinator{
-            //Local elevator
-            elevator_data: elevator_data,
-            local_id: local_id,
-            n_floors: n_floors,
+        net_data_send_tx: cbc::Sender<ElevatorData>,
+        net_data_recv_rx: cbc::Receiver<ElevatorData>,
+        net_peer_update_rx: cbc::Receiver<PeerUpdate>,
+    ) -> Coordinator {
+        Coordinator {
+            // Private fields
+            elevator_data,
+            local_id,
+            n_floors,
 
             //Hardware channels
-            hw_button_light_tx: hw_button_light_tx,
-            hw_hall_request_rx: hw_hall_request_rx,
+            hw_button_light_tx,
+            hw_request_rx,
 
-            //Local elevator thread channels
-            state_rx: state_rx,
-            complete_order_rx: complete_order_rx,
-            hall_requests_tx: hall_requests_tx,
+            // FSM channels
+            fsm_hall_requests_tx,
+            fsm_cab_request_tx,
+            fsm_state_rx,
+            fsm_order_complete_rx,
 
-            // Netowrk thread channels
-            data_recv_rx: data_recv_rx,
-            peer_update_rx: peer_update_rx,
-            data_send_tx: data_send_tx,
-        })
+            // Netowrk channels
+            net_data_recv_rx,
+            net_peer_update_rx,
+            net_data_send_tx,
+        }
     }
-    
-    // ---- main functions -----
 
-    //Main run function
-    pub fn run(&mut self) { 
-        // Main Coordinator loop
+    pub fn run(&mut self) {
+        // Main loop
         loop {
-            let event: GlobalEvent = self.wait_for_event();
+            let event: Event = self.wait_for_event();
             self.handle_event(event);
         }
     }
 
-
-
-    // ---- Extra functions -----
-
-    fn handle_event(&mut self, event: GlobalEvent){
+    fn handle_event(&mut self, event: Event) {
         match event {
-            GlobalEvent::NewPackage(elevator_data) => {
+            Event::NewPackage(elevator_data) => {
+                println!("New package: {:?}", elevator_data);
                 let merge_type = self.check_version(elevator_data.version);
-                if merge_type != MergeEvent::NoMerge {
-                    //Incomming version newer than local
-                    if merge_type == MergeEvent::MergeNew {
+
+                match merge_type {
+                    MergeType::Inherit => {
                         //Updating lights
                         let new_hall_request = elevator_data.hall_requests.clone();
                         for floor in 0..self.n_floors {
-                            if new_hall_request[floor as usize][HALL_DOWN as usize] != self.elevator_data.hall_requests[floor as usize][HALL_DOWN as usize] {
-                                self.update_lights((floor, HALL_DOWN, new_hall_request[floor as usize][HALL_DOWN as usize]));
-                                }
-                            if new_hall_request[floor as usize][HALL_UP as usize] != self.elevator_data.hall_requests[floor as usize][HALL_UP as usize] {
-                                self.update_lights((floor, HALL_UP, new_hall_request[floor as usize][HALL_UP as usize]));
-                                } 
+                            if new_hall_request[floor as usize][HALL_DOWN as usize]
+                                != self.elevator_data.hall_requests[floor as usize]
+                                    [HALL_DOWN as usize]
+                            {
+                                self.update_lights((
+                                    floor,
+                                    HALL_DOWN,
+                                    new_hall_request[floor as usize][HALL_DOWN as usize],
+                                ));
+                            }
+                            if new_hall_request[floor as usize][HALL_UP as usize]
+                                != self.elevator_data.hall_requests[floor as usize]
+                                    [HALL_UP as usize]
+                            {
+                                self.update_lights((
+                                    floor,
+                                    HALL_UP,
+                                    new_hall_request[floor as usize][HALL_UP as usize],
+                                ));
+                            }
                         }
                         //Writing the new changes to elevatorData
                         self.elevator_data.version = elevator_data.version;
@@ -125,180 +143,272 @@ impl Coordinator{
 
                         self.hall_request_assigner(false);
                     }
-
-                    //Inncommning data has merge conflict
-                    if merge_type == MergeEvent::MergeConflict {
+                    MergeType::Conflict => {
                         // TODO: merge conflict
-                        
-                        //self.update_lights();
-                        //self.hall_request_assigner(false);
                     }
                 }
-            },
+            }
 
-            GlobalEvent::NewPeerUpdate(peer_update) => {
+            Event::NewPeerUpdate(peer_update) => {
                 let mut lost_elevators = peer_update.lost;
 
                 //Removing dead elevators
                 for elevator in lost_elevators.iter_mut() {
                     self.elevator_data.states.remove(elevator);
                 }
-            },
 
-            GlobalEvent::NewButtonRequest(new_button_request) => {
-                //Checking if button already has been handled
-                if !self.check_hall_button(new_button_request.0, new_button_request.1) {
-                    // Writing change to elvatorData
-                    self.elevator_data.hall_requests[new_button_request.0 as usize][new_button_request.1 as usize] = true;
-                    self.update_lights((new_button_request.0,new_button_request.1,true));
-                    self.hall_request_assigner(true);
+                // Add new elevators
+                for id in peer_update.new.iter() {
+                    println!("New elevator: {:?}", id);
+                    self.elevator_data.states.insert(
+                        id.clone(),
+                        ElevatorState {
+                            behaviour: Behaviour::Idle,
+                            floor: 0,
+                            direction: Direction::Stop,
+                            cab_requests: vec![false; self.n_floors as usize],
+                        },
+                    );
+                }
+            }
+
+            Event::RequestReceived(request) => {
+                if request.1 == CAB {
+                    // Updating elevator data
+                    self.elevator_data
+                        .states
+                        .get_mut(&self.local_id)
+                        .unwrap()
+                        .cab_requests[request.0 as usize] = true;
+
+                    //Sending the change to the fsm
+                    self.fsm_cab_request_tx
+                        .send(request.0)
+                        .expect("Failed to send cab request to fsm");
+
+                    //Updating lights
+                    self.update_lights((request.0, CAB, true));
+                } 
+                
+                else if request.1 == HALL_DOWN || request.1 == HALL_UP {
+                    //Checking if hall button has already been handled
+                    if !self.check_hall_button(request.0, request.1) {
+                        //Updating hall requests
+                        self.elevator_data.hall_requests[request.0 as usize][request.1 as usize] = true;
+
+                        // Calculating and sending to fsm
+                        self.hall_request_assigner(true);
+
+                        // Updating lights
+                        self.update_lights((request.0, request.1, true));
+                    }
                 }
 
-            },
+                // Send the updated elevator data
+                self.net_data_send_tx
+                    .send(self.elevator_data.clone())
+                    .expect("Failed to send elevator data to network thread");
+            }
 
-            GlobalEvent::NewElevatorState(elevator_state) => {
+            Event::NewElevatorState(elevator_state) => {
                 // Checking for new cab requests
                 let current_cab_requests = &self.elevator_data.states[&self.local_id].cab_requests;
 
                 for floor in 0..self.n_floors {
-                    if current_cab_requests[floor as usize] != elevator_state.cab_requests[floor as usize] {
+                    if current_cab_requests[floor as usize]
+                        != elevator_state.cab_requests[floor as usize]
+                    {
                         //Updating cab button lights with new changes from FSM
                         self.update_lights((floor, CAB, current_cab_requests[floor as usize]));
                     }
                 }
 
-                // Changing state of local elevator
+                // Updating state elevator data
                 if let Some(state) = self.elevator_data.states.get_mut(&self.local_id) {
                     *state = elevator_state;
                 }
 
                 self.hall_request_assigner(true);
-            },
 
-            GlobalEvent::CompletedOrder(finish_order) => {
-                //Updating elevatorData, lights and sending the change 
-                self.elevator_data.hall_requests[finish_order.0 as usize][finish_order.1 as usize] = false;
-                self.update_lights((finish_order.0, finish_order.1, false));
+                // Send the updated ElevatorData
+                self.net_data_send_tx
+                    .send(self.elevator_data.clone())
+                    .expect("Failed to send elevator data to network thread");
+            }
+
+            Event::OrderComplete(completed_order) => {
+                // Updating elevator data
+                if completed_order.1 == CAB {
+                    self.elevator_data
+                        .states
+                        .get_mut(&self.local_id)
+                        .unwrap()
+                        .cab_requests[completed_order.0 as usize] = false;
+                }
+
+                if completed_order.1 == HALL_DOWN || completed_order.1 == HALL_UP {
+                    self.elevator_data.hall_requests[completed_order.0 as usize][HALL_DOWN as usize] = false;
+                }
+
+                // Update lights and hall requests
+                self.update_lights((completed_order.0, completed_order.1, false));
                 self.hall_request_assigner(true);
-            },
+            }
 
-            GlobalEvent::NoEvent => {
-                // Do some data cleanup? 
+            Event::NoEvent => {
+                // Do some data cleanup?
             }
         }
     }
 
-    
-    fn wait_for_event(&self) -> GlobalEvent{
+    fn wait_for_event(&self) -> Event {
         cbc::select! {
             //Handling new package
-            recv(self.data_recv_rx) -> package => {
+            recv(self.net_data_recv_rx) -> package => {
                match package {
-                Ok(elevator_data) => {
-                return GlobalEvent::NewPackage(elevator_data);
-                },
-                Err(e) => {
-                    println!("Error extracting network package in coordinator: {:?}\r\n", e);
-                },
-               }
+                    Ok(elevator_data) => {
+                        Event::NewPackage(elevator_data)
+                    },
+                    Err(e) => {
+                        eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
+                        std::process::exit(1);
+                    }
+                }
             },
 
             //Hanlding peer update
-            recv(self.peer_update_rx) -> peer => {
+            recv(self.net_peer_update_rx) -> peer => {
                 match peer {
-                 Ok(peer_update) => {
-                    return GlobalEvent::NewPeerUpdate(peer_update);
-                 },
-                 Err(e) => {
-                     println!("Error extracting peer update package in coordinator: {:?}\r\n", e);
-                 },
+                    Ok(peer_update) => {
+                        Event::NewPeerUpdate(peer_update)
+                    },
+                    Err(e) => {
+                        eprintln!("Error extracting peer update package in coordinator: {:?}\r\n", e);
+                        std::process::exit(1);
+                    }
                 }
-             },
- 
-            //Handling new button press
-            recv(self.hw_hall_request_rx) -> new_button => {
-                match new_button {
-                 Ok(new_button_request) => {
-                    return GlobalEvent::NewButtonRequest(new_button_request);
-                 },
-                 Err(e) => {
-                     println!("Error extracting button package in coordinator: {:?}\r\n", e);
-                 },
-                }
-             },
+            },
 
-            //Handling new local elevator state
-            recv(self.state_rx) -> new_state => {
-                match new_state {
-                 Ok(elevator_state) => {
-                    return GlobalEvent::NewElevatorState(elevator_state);
-                 },
-                 Err(e) => {
-                     println!("Error extracting network package in coordinator: {:?}\r\n", e);
-                 },
+            //Handling new button press
+            recv(self.hw_request_rx) -> request => {
+                match request {
+                    Ok(request) => {
+                        Event::RequestReceived(request)
+                    },
+                    Err(e) => {
+                        eprintln!("Error extracting button package in coordinator: {:?}\r\n", e);
+                        std::process::exit(1);
+                    }
                 }
-             },
-             
-            //Handling completed order from local elevator
-            recv(self.complete_order_rx) -> completed_order => {
+            },
+
+            // Handling new fsm state
+            recv(self.fsm_state_rx) -> state => {
+                match state {
+                    Ok(state) => {
+                        Event::NewElevatorState(state)
+                    },
+                    Err(e) => {
+                        eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
+                        std::process::exit(1);
+                    }
+                }
+            },
+
+            // Handling completed order from fsm
+            recv(self.fsm_order_complete_rx) -> completed_order => {
                 match completed_order {
-                 Ok(finish_order) => {
-                    return GlobalEvent::CompletedOrder(finish_order);
-                 },
-                 Err(e) => {
-                     println!("Error extracting completed order from local elevator in coordinator: {:?}\r\n", e);
-                 },
+                    Ok(finish_order) => {
+                        Event::OrderComplete(finish_order)
+                    },
+                    Err(e) => {
+                        eprintln!("Error extracting completed order from fsm in coordinator: {:?}\r\n", e);
+                        std::process::exit(1);
+                    }
                 }
-             }
+            }
+            default(Duration::from_millis(50)) => Event::NoEvent,
         }
-        return GlobalEvent::NoEvent;
     }
 
-    //Update lights
-    fn update_lights(&self, light: (u8,u8,bool)){
+    // Update lights
+    fn update_lights(&self, light: (u8, u8, bool)) {
         //Sending change in lights
         if let Err(e) = self.hw_button_light_tx.send(light) {
-            eprintln!("Failed to send light command to light thread from coordinator: {:?}", e);
+            eprintln!(
+                "Failed to send light command to light thread from coordinator: {:?}",
+                e
+            );
+            std::process::exit(1);
         }
     }
 
-    //Calcualting hall requests
-    fn hall_request_assigner(&self, transmit: bool){
-        // TODO:
-        // To JSON
-        // run exe
-        // back to ElevatorData -> data_send_tx
-        // Send orders that belongs to local elevator
+    // Calcualting hall requests
+    fn hall_request_assigner(&mut self, transmit: bool) {
+        let hra_input =
+            serde_json::to_string(&self.elevator_data).expect("Failed to serialize data");
+
+        // Run the Linux executable with serialized_data as input
+        let hra_output = Command::new("./src/coordinator/hall_request_assigner")
+            .arg("--input")
+            .arg(&hra_input)
+            .output()
+            .expect("Failed to execute hall_request_assigner");
+
+        // Check if the command was executed successfully
+        if hra_output.status.success() {
+            // The output of the executable is in the `stdout` field of the `hra_output` variable
+            let hra_output_str =
+                String::from_utf8(hra_output.stdout).expect("Invalid UTF-8 hra_output");
+            let hra_output =
+                serde_json::from_str::<HashMap<String, Vec<Vec<bool>>>>(&hra_output_str)
+                    .expect("Failed to deserialize hra_output");
+
+            // Update hall requests assigned to local elevator (HRA has three inner dimentions lol)
+            let mut local_hall_requests = vec![vec![false; 2]; self.n_floors as usize];
+            for (id, hall_requests) in hra_output.iter() {
+                if id == &self.local_id {
+                    for floor in 0..self.n_floors {
+                        local_hall_requests[floor as usize][HALL_UP as usize] =
+                            hall_requests[floor as usize][HALL_UP as usize];
+                        local_hall_requests[floor as usize][HALL_DOWN as usize] =
+                            hall_requests[floor as usize][HALL_DOWN as usize];
+                    }
+                }
+            }
+
+            self.fsm_hall_requests_tx
+                .send(local_hall_requests)
+                .expect("Failed to send hall requests to fsm");
+        } else {
+            // If the executable did not run successfully, you can handle the error
+            let error_message =
+                String::from_utf8(hra_output.stderr).expect("Invalid UTF-8 error hra_output");
+            eprintln!("Error executing hall_request_assigner: {:?}", error_message);
+            std::process::exit(1);
+        }
+
+        // Send orders that belongs to fsm
     }
-    
-    // Checks if incommning version is newer than local version
-    fn check_version(&self, version: u64) -> MergeEvent{
+
+    // Checks if incomming version is newer than local version
+    fn check_version(&self, version: u64) -> MergeType {
         if version > self.elevator_data.version {
-            return MergeEvent::MergeNew;
+            MergeType::Inherit
+        } else {
+            MergeType::Conflict
         }
-        else if version == self.elevator_data.version{
-            return MergeEvent::MergeConflict;
-        }
-        else{
-            return MergeEvent::NoMerge;
-        } 
     }
-    
-    //Checks if hall button is already been handled (return false if not pressed)
-    fn check_hall_button(&self, floor: u8, call: u8) -> bool{
-        if call == HALL_DOWN && !self.elevator_data.hall_requests[floor as usize][0] {
-                return false;
-        }
-        else if call == HALL_UP && !self.elevator_data.hall_requests[floor as usize][1] {
-                return false;
-        }
 
-        //Hall requst has already been handeled
-        else{
-            return true;
+    // Checks if hall button is already been handled (return false if not pressed)
+    fn check_hall_button(&self, floor: u8, call: u8) -> bool {
+        if call == HALL_DOWN && !self.elevator_data.hall_requests[floor as usize][0] {
+            return false
         }
+        if call == HALL_UP && !self.elevator_data.hall_requests[floor as usize][1] {
+            return false
+        }
+        // Hall request has already been handled
+        true
     }
 }
-
-
-
