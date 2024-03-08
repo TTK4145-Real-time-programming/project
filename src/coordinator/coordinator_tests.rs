@@ -114,7 +114,7 @@ mod coordinator_tests {
         assert_eq!(*coordinator.test_get_n_floors(), 4);
     }
 
-    //#[test]
+    #[test]
     fn test_coordinator_update_lights() {
         // Arrange
         let (
