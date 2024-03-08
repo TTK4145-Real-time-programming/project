@@ -427,3 +427,31 @@ impl Coordinator {
         true
     }
 }
+
+/***************************************/
+/*              Test API               */
+/***************************************/
+#[cfg(test)]
+pub mod testing {
+    use super::Coordinator;
+    use crate::shared::ElevatorData;
+
+    impl Coordinator {
+        // Publicly expose the private fields for testing
+        pub fn test_get_data(&self) -> &ElevatorData {
+            &self.elevator_data
+        }
+
+        pub fn test_get_local_id(&self) -> &String {
+            &self.local_id
+        }
+        
+        pub fn test_get_n_floors(&self) -> &u8 {
+            &self.n_floors
+        }
+
+        pub fn test_update_lights(&self, light: (u8, u8, bool)) {
+            self.update_lights(light);
+        }
+    }
+}
