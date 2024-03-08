@@ -1,6 +1,6 @@
 pub mod fsm;
 pub mod hardware;
-pub mod tests;
+pub mod fsm_tests;
 
 pub use fsm::ElevatorFSM;
 pub use hardware::ElevatorDriver;

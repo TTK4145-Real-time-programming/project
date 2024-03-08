@@ -13,7 +13,7 @@
 /*             Unit tests              */
 /***************************************/
 #[cfg(test)]
-mod tests {
+mod fsm_tests {
     use std::thread::spawn;
     use crate::ElevatorFSM;
     use crate::ElevatorState;
