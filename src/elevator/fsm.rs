@@ -74,6 +74,7 @@ pub struct ElevatorFSM {
     fsm_state_tx: cbc::Sender<ElevatorState>,
 
     // Private fields
+    fsm_terminate_rx: cbc::Receiver<()>,
     hall_requests: Vec<Vec<bool>>,
     state: ElevatorState,
     n_floors: u8,
@@ -96,6 +97,7 @@ impl ElevatorFSM {
         fsm_cab_request_rx: cbc::Receiver<u8>,
         fsm_order_complete_tx: cbc::Sender<(u8, u8)>,
         fsm_state_tx: cbc::Sender<ElevatorState>,
+        fsm_terminate_rx: cbc::Receiver<()>,
     ) -> ElevatorFSM {
         ElevatorFSM {
             hw_motor_direction_tx,
@@ -108,6 +110,7 @@ impl ElevatorFSM {
             fsm_cab_request_rx,
             fsm_order_complete_tx,
             fsm_state_tx,
+            fsm_terminate_rx,
             
             hall_requests: vec![vec![false; 2]; config.n_floors as usize],
             state: ElevatorState::new(config.n_floors),
@@ -174,6 +177,9 @@ impl ElevatorFSM {
                             std::process::exit(1);
                         }
                     }
+                }
+                recv(self.fsm_terminate_rx) -> _ => {
+                    break;
                 }
                 default(Duration::from_millis(100)) => {
                     match self.state.behaviour {
@@ -411,6 +417,54 @@ impl ElevatorFSM {
                 self.has_orders_in_direction(Down)
             }
             Stop => true,
+        }
+    }
+}
+
+/***************************************/
+/*              Test API               */
+/***************************************/
+#[cfg(test)]
+pub mod testing {
+    use crate::ElevatorState;
+    use super::ElevatorFSM;
+
+    impl ElevatorFSM {
+        // Publicly expose the private fields for testing
+        pub fn test_get_state(&self) -> &ElevatorState {
+            &self.state
+        }
+
+        pub fn test_set_hall_requests(&mut self, hall_requests: Vec<Vec<bool>>) {
+            self.hall_requests = hall_requests;
+        }
+
+        pub fn test_set_state(&mut self, state: ElevatorState) {
+            self.state = state;
+        }
+
+        pub fn test_choose_direction(&self) -> super::Direction {
+            self.choose_direction()
+        }
+
+        pub fn test_has_orders_in_direction(&self, direction: super::Direction) -> bool {
+            self.has_orders_in_direction(direction)
+        }
+
+        pub fn test_complete_orders(&mut self) -> bool {
+            self.complete_orders()
+        }
+
+        pub fn test_open_door(&mut self) {
+            self.open_door()
+        }
+        
+        pub fn test_close_door(&mut self) {
+            self.close_door()
+        }
+        
+        pub fn test_handle_event(&mut self, event: super::Event) {
+            self.handle_event(event)
         }
     }
 }
