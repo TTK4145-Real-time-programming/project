@@ -323,10 +323,7 @@ impl ElevatorFSM {
                 .unwrap();
         }
         // Remove hall up orders.
-        if (self.state.direction.to_u8() == DIRN_UP
-            || self.state.direction.to_u8() == DIRN_STOP
-            || is_bottom_floor)
-            && self.hall_requests[current_floor as usize][HALL_UP as usize]
+        if self.hall_requests[current_floor as usize][HALL_UP as usize]
         {
             // Open the door
             orders_completed = true;
@@ -339,10 +336,7 @@ impl ElevatorFSM {
         }
 
         // Remove hall down orders.
-        if (self.state.direction.to_u8() == DIRN_DOWN
-            || self.state.direction.to_u8() == DIRN_STOP
-            || is_top_floor)
-            && self.hall_requests[current_floor as usize][HALL_DOWN as usize]
+        if self.hall_requests[current_floor as usize][HALL_DOWN as usize]
         {
             // Open the door
             orders_completed = true;
