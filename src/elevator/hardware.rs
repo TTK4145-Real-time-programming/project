@@ -21,6 +21,7 @@
  * - `hw_door_light_rx`:        Receiver for door light control commands.
  * - `hw_obstruction_tx`:       Sender for obstruction events.
  * - `hw_stop_button_tx`:       Sender for stop button events.
+ * - `terminate_rx`:            Receiver for termination signal.
  */
 
 /***************************************/
@@ -58,6 +59,7 @@ pub struct ElevatorDriver {
     hw_door_light_rx: cbc::Receiver<bool>,
     hw_obstruction_tx: cbc::Sender<bool>,
     hw_stop_button_tx: cbc::Sender<bool>,
+    terminate_rx: cbc::Receiver<()>,
 }
 
 impl ElevatorDriver {
@@ -70,6 +72,7 @@ impl ElevatorDriver {
         hw_door_light_rx: cbc::Receiver<bool>,
         hw_obstruction_tx: cbc::Sender<bool>,
         hw_stop_button_tx: cbc::Sender<bool>,
+        terminate_rx: cbc::Receiver<()>,
     ) -> ElevatorDriver {
         ElevatorDriver {
             elevator: unwrap_or_exit!(Elevator::init(&config.driver_address, config.n_floors)),
@@ -84,6 +87,7 @@ impl ElevatorDriver {
             hw_door_light_rx,
             hw_obstruction_tx,
             hw_stop_button_tx,
+            terminate_rx,
         }
     }
 
@@ -177,6 +181,9 @@ impl ElevatorDriver {
                         }
                     }
 
+                }
+                recv(self.terminate_rx) -> _ => {
+                    break;
                 }
                 default(Duration::from_millis(self.thread_sleep_time)) => {}
             }

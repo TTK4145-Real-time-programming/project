@@ -22,6 +22,7 @@ enum Event {
     NewElevatorState(ElevatorState),
     OrderComplete((u8, u8)),
     NoEvent,
+    Terminate,
 }
 
 #[derive(PartialEq)]
@@ -35,6 +36,7 @@ enum MergeType {
 /***************************************/
 pub struct Coordinator {
     // Private fields
+    coordinator_terminate_rx: cbc::Receiver<()>,
     elevator_data: ElevatorData,
     local_id: String,
     n_floors: u8,
@@ -72,9 +74,12 @@ impl Coordinator {
         net_data_send_tx: cbc::Sender<ElevatorData>,
         net_data_recv_rx: cbc::Receiver<ElevatorData>,
         net_peer_update_rx: cbc::Receiver<PeerUpdate>,
+
+        coordinator_terminate_rx: cbc::Receiver<()>,
     ) -> Coordinator {
         Coordinator {
             // Private fields
+            coordinator_terminate_rx,
             elevator_data,
             local_id,
             n_floors,
@@ -255,6 +260,11 @@ impl Coordinator {
                 self.hall_request_assigner(true);
             }
 
+            Event::Terminate => {
+                println!("Coordinator terminated");
+                std::process::exit(0);
+            }
+
             Event::NoEvent => {
                 // Do some data cleanup?
             }
@@ -327,6 +337,11 @@ impl Coordinator {
                     }
                 }
             }
+
+            recv(self.coordinator_terminate_rx) -> _ => {
+                Event::Terminate
+            }
+
             default(Duration::from_millis(50)) => Event::NoEvent,
         }
     }

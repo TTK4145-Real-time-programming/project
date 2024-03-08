@@ -29,6 +29,11 @@ fn main() -> std::io::Result<()> {
     // Load the configuration
     let config = config::load_config();
 
+    // Termination signals
+    let (_fsm_terminate_tx, fsm_terminate_rx) = cbc::unbounded::<()>();
+    let (_coordinator_terminate_tx, coordinator_terminate_rx) = cbc::unbounded::<()>();
+    let (_hw_terminate_tx, hw_terminate_rx) = cbc::unbounded::<()>();
+
     // FSM channels
     let (fsm_hall_requests_tx, fsm_hall_requests_rx) = cbc::unbounded::<Vec<Vec<bool>>>();
     let (fsm_cab_request_tx, fsm_cab_request_rx) = cbc::unbounded::<u8>();
@@ -60,6 +65,7 @@ fn main() -> std::io::Result<()> {
         hw_door_light_rx,
         hw_obstruction_tx,
         hw_stop_button_tx,
+        hw_terminate_rx,
     );
 
     let elevator_driver_thread = Builder::new().name("elevator_driver".into());
@@ -89,6 +95,7 @@ fn main() -> std::io::Result<()> {
         fsm_cab_request_rx,
         fsm_order_complete_tx,
         fsm_state_tx,
+        fsm_terminate_rx,
     );
 
     let elevator_fsm_thread = Builder::new().name("elevator_fsm".into());
@@ -117,6 +124,7 @@ fn main() -> std::io::Result<()> {
         net_data_send_tx,
         net_data_recv_rx,
         net_peer_update_rx,
+        coordinator_terminate_rx,
     );
 
     let coordinator_thread = Builder::new().name("coordinator".into());
