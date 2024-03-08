@@ -16,12 +16,15 @@
 #[cfg(test)]
 mod coordinator_tests {
     use crate::Coordinator;
+    use crate::coordinator::coordinator::MergeType;
     use crate::ElevatorState;
     use crate::ElevatorData;
     use crate::shared::Behaviour::{Idle, Moving, DoorOpen};
     use crate::shared::Direction::{Up, Down, Stop};
+    use std::time::Duration;
     use driver_rust::elevio::elev::{HALL_DOWN, HALL_UP, CAB};
     use network_rust::udpnet::peers::PeerUpdate;
+    use core::panic;
     use std::thread::Builder;
     use crossbeam_channel::unbounded;
     use crossbeam_channel::Receiver;
@@ -118,9 +121,9 @@ mod coordinator_tests {
     fn test_coordinator_update_lights() {
         // Arrange
         let (
-            mut coordinator,
+            coordinator,
             hw_button_light_rx,
-            hw_request_tx,
+            _hw_request_tx,
             _fsm_hall_requests_rx,
             _fsm_cab_request_rx,
             _fsm_state_tx,
@@ -128,29 +131,65 @@ mod coordinator_tests {
             _net_data_send_rx,
             _net_data_recv_tx,
             _net_peer_update_tx,
-            coordinator_terminate_tx
+            _coordinator_terminate_tx
         ) = setup_coordinator();
 
         let n_floors = coordinator.test_get_n_floors().clone();
-        let coordinator_thread = Builder::new().name("coordinator".into()).spawn(move || coordinator.run()).unwrap();
+        //let coordinator_thread = Builder::new().name("coordinator".into()).spawn(move || coordinator.run()).unwrap();
+        let timeout = Duration::from_millis(100);
+
+        // Act / Assert
+        for floor in 0..n_floors {
+            coordinator.test_update_lights((floor, HALL_UP, true));
+            match hw_button_light_rx.recv_timeout(timeout) {
+                Ok(msg) => assert_eq!(msg, (floor, HALL_UP, true), "Mismatch for floor {} HALL_UP", floor),
+                Err(e) => panic!("Error receiving HALL_UP for floor {}: {:?}", floor, e),
+            }
+    
+            coordinator.test_update_lights((floor, HALL_DOWN, true));
+            match hw_button_light_rx.recv_timeout(timeout) {
+                Ok(msg) => assert_eq!(msg, (floor, HALL_DOWN, true), "Mismatch for floor {} HALL_DOWN", floor),
+                Err(e) => panic!("Error receiving HALL_DOWN for floor {}: {:?}", floor, e),
+            }
+    
+            coordinator.test_update_lights((floor, CAB, true));
+            match hw_button_light_rx.recv_timeout(timeout) {
+                Ok(msg) => assert_eq!(msg, (floor, CAB, true), "Mismatch for floor {} CAB", floor),
+                Err(e) => panic!("Error receiving CAB for floor {}: {:?}", floor, e),
+            }
+        }
+    }
+
+    #[test]
+    fn test_coordinator_check_version() {
+        // Arrange
+        let (
+            mut coordinator,
+            _hw_button_light_rx,
+            _hw_request_tx,
+            _fsm_hall_requests_rx,
+            _fsm_cab_request_rx,
+            _fsm_state_tx,
+            _fsm_order_complete_tx,
+            _net_data_send_rx,
+            _net_data_recv_tx,
+            _net_peer_update_tx,
+            _coordinator_terminate_tx
+        ) = setup_coordinator();
 
         // Act
-        for floor in 0..n_floors {
-            hw_request_tx.send((floor, HALL_UP)).unwrap();
-            hw_request_tx.send((floor, HALL_DOWN)).unwrap();
-            hw_request_tx.send((floor, CAB)).unwrap();
-        }
+        coordinator.test_set_version(2);
+        let merge_type1 = coordinator.test_check_version(1);
+        let merge_type2 = coordinator.test_check_version(2);
+        let merge_type3 = coordinator.test_check_version(3);
 
         // Assert
-        for floor in 0..n_floors {
-            assert_eq!(hw_button_light_rx.recv().unwrap(), (floor, HALL_UP, true));
-            assert_eq!(hw_button_light_rx.recv().unwrap(), (floor, HALL_DOWN, true));
-            assert_eq!(hw_button_light_rx.recv().unwrap(), (floor, CAB, true));
-        }
-
-        // Cleanup
-        coordinator_terminate_tx.send(()).unwrap();
-        coordinator_thread.join().unwrap();
+        assert_eq!(merge_type1, MergeType::Reject);
+        assert_eq!(merge_type2, MergeType::Conflict);
+        assert_eq!(merge_type3, MergeType::Accept);
+        
     }
+
+    
     
 }
