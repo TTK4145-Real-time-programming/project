@@ -21,6 +21,7 @@ mod fsm_tests {
     use crate::shared::Behaviour::{Idle, Moving, DoorOpen};
     use crate::shared::Direction::{Up, Down, Stop};
     use crossbeam_channel::unbounded;
+    use crate::shared::Direction;
 
     fn setup_fsm() -> (ElevatorFSM,
         crossbeam_channel::Receiver<u8>,
@@ -181,29 +182,192 @@ mod fsm_tests {
             _fsm_state_rx,
             _terminate_tx) = setup_fsm();
 
+        //Testing no orders
         let state1 = ElevatorState {
             behaviour: Moving,
             floor: 0,
             direction: Stop,
-            cab_requests: vec![false; 4],
+            cab_requests: [false, false, false, false].to_vec(),
         };
-
+        //Testing orders above
         let state2 = ElevatorState {
             behaviour: Moving,
             floor: 1,
             direction: Stop,
-            cab_requests: vec![false; 4],
+            cab_requests: [false, false, true, true].to_vec(),
+        };
+        //testing orders below
+        let state3 = ElevatorState {
+            behaviour: Moving,
+            floor: 1,
+            direction: Stop,
+            cab_requests: [true, false, false, false].to_vec(),
+        };
+        //testing orders at current floor
+        let state4 = ElevatorState {
+            behaviour: Moving,
+            floor: 3,
+            direction: Stop,
+            cab_requests: [false, false, false, true].to_vec(),
         };
 
         // Act
         fsm.test_set_state(state1);
-        fsm.test_set_state(state2);
         let direction1 = fsm.test_choose_direction();
+        fsm.test_set_state(state2);
         let direction2 = fsm.test_choose_direction();
+        fsm.test_set_state(state3);
+        let direction3 = fsm.test_choose_direction();
+        fsm.test_set_state(state4);
+        let direction4 = fsm.test_choose_direction();
 
         // Assert
-        assert_eq!(direction1, Up);
-        assert_eq!(direction2, Down);
+        assert_eq!(direction1, Stop);
+        assert_eq!(direction2, Up);
+        assert_eq!(direction3, Down);
+        assert_eq!(direction4, Stop);
 
+    }
+
+    #[test]
+    fn test_fsm_has_orders_in_directions() {
+        // Arrange
+        let (mut fsm,
+            _hw_motor_direction_rx,
+            _hw_floor_sensor_tx,
+            _hw_door_light_rx,
+            _hw_obstruction_tx,
+            _hw_stop_button_tx,
+            _fsm_hall_requests_tx,
+            _fsm_cab_request_tx,
+            _fsm_order_complete_rx,
+            _fsm_state_rx,
+            _terminate_tx) = setup_fsm();
+
+        //Testing no orders
+        let state1 = ElevatorState {
+            behaviour: Moving,
+            floor: 0,
+            direction: Stop,
+            cab_requests: [false, false, false, false].to_vec(),
+        };
+        //Testing above
+        let state2 = ElevatorState {
+            behaviour: Moving,
+            floor: 0,
+            direction: Stop,
+            cab_requests: [false, true, false, false].to_vec(),
+        };
+        //Testing below
+        let state3 = ElevatorState {
+            behaviour: Moving,
+            floor: 2,
+            direction: Stop,
+            cab_requests: [true, false, false, false].to_vec(),
+        };
+        //Testing at current floor
+        let state4 = ElevatorState {
+            behaviour: Moving,
+            floor: 1,
+            direction: Stop,
+            cab_requests: [true, false, false, false].to_vec(),
+        };
+
+        let test_direction1 = Direction::Up;
+        let test_direction2 = Direction::Up;
+        let test_direction3 = Direction::Down;
+        let test_direction4 = Direction::Up;
+        
+        // Act
+        fsm.test_set_state(state1);
+        let direction1 = fsm.test_has_orders_in_direction(test_direction1);
+        fsm.test_set_state(state2);
+        let direction2 = fsm.test_has_orders_in_direction(test_direction2);
+        fsm.test_set_state(state3);
+        let direction3 = fsm.test_has_orders_in_direction(test_direction3);
+        fsm.test_set_state(state4);
+        let direction4 = fsm.test_has_orders_in_direction(test_direction4);
+
+        // Assert
+        assert_eq!(direction1, false);
+        assert_eq!(direction2, true);
+        assert_eq!(direction3, true);
+        assert_eq!(direction4, false);
+    }
+
+    #[test]
+    fn test_fsm_complete_orders() {
+        // Arrange
+        let (mut fsm,
+            _hw_motor_direction_rx,
+            _hw_floor_sensor_tx,
+            _hw_door_light_rx,
+            _hw_obstruction_tx,
+            _hw_stop_button_tx,
+            _fsm_hall_requests_tx,
+            _fsm_cab_request_tx,
+            _fsm_order_complete_rx,
+            _fsm_state_rx,
+            _terminate_tx) = setup_fsm();
+
+        //Checing for completing of cab buttons (Been tested for all types of directions)
+        let state1 = ElevatorState {
+            behaviour: Moving,
+            floor: 1,
+            direction: Up,
+            cab_requests: [false, true, false, false].to_vec(),
+        };
+
+        let hall_requests1 = [[false, false].to_vec(),
+                              [false, false].to_vec(),
+                              [false, false].to_vec(),
+                              [false, false].to_vec()
+                              ].to_vec();
+
+        //Checing for completing of hall up orders (Tested for all types of direction)
+        let state2 = ElevatorState {
+            behaviour: Moving,
+            floor: 2,
+            direction: Up,
+            cab_requests: [false, false, false, false].to_vec(),
+        };
+
+        let hall_requests2 = [[false, true].to_vec(),
+                              [false, true].to_vec(),
+                              [false, true].to_vec(),
+                              [false, false].to_vec()
+                              ].to_vec();
+
+        //Checing for completing of hall down orders (Tested for all direction)
+        let state3 = ElevatorState {
+            behaviour: Moving,
+            floor: 1,
+            direction: Stop,
+            cab_requests: [false, false, false, false].to_vec(),
+        };
+
+        let hall_requests3 = [[false, false].to_vec(),
+                              [true, false].to_vec(),
+                              [false, false].to_vec(),
+                              [false, false].to_vec()
+                            ].to_vec();
+
+        // Act 
+        fsm.test_set_state(state1);
+        fsm.test_set_hall_requests(hall_requests1);
+        let result1 = fsm.test_complete_orders();
+
+        fsm.test_set_state(state2);
+        fsm.test_set_hall_requests(hall_requests2);
+        let result2 = fsm.test_complete_orders();
+
+        fsm.test_set_state(state3);
+        fsm.test_set_hall_requests(hall_requests3);
+        let result3 = fsm.test_complete_orders();
+
+        // Assert
+        assert_eq!(result1, true);
+        assert_eq!(result2, true);
+        assert_eq!(result3, true);
     }
 }
