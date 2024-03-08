@@ -434,5 +434,37 @@ pub mod testing {
         pub fn test_get_state(&self) -> &ElevatorState {
             &self.state
         }
+
+        pub fn test_set_hall_requests(&mut self, hall_requests: Vec<Vec<bool>>) {
+            self.hall_requests = hall_requests;
+        }
+
+        pub fn test_set_state(&mut self, state: ElevatorState) {
+            self.state = state;
+        }
+
+        pub fn test_choose_direction(&self) -> super::Direction {
+            self.choose_direction()
+        }
+
+        pub fn test_has_orders_in_direction(&self, direction: super::Direction) -> bool {
+            self.has_orders_in_direction(direction)
+        }
+
+        pub fn test_complete_orders(&mut self) -> bool {
+            self.complete_orders()
+        }
+
+        pub fn test_open_door(&mut self) {
+            self.open_door()
+        }
+        
+        pub fn test_close_door(&mut self) {
+            self.close_door()
+        }
+        
+        pub fn test_handle_event(&mut self, event: super::Event) {
+            self.handle_event(event)
+        }
     }
 }

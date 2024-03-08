@@ -15,12 +15,9 @@
 #[cfg(test)]
 mod tests {
     use std::thread::spawn;
-
-    use crate::elevator::fsm;
     use crate::ElevatorFSM;
     use crate::ElevatorState;
     use crate::config::ElevatorConfig;
-    use crate::shared::{Behaviour, Direction};
     use crate::shared::Behaviour::{Idle, Moving, DoorOpen};
     use crate::shared::Direction::{Up, Down, Stop};
     use crossbeam_channel::unbounded;
@@ -82,7 +79,7 @@ mod tests {
     }
 
     #[test]
-    fn test_elevator_fsm_new_initial_state() {
+    fn test_fsm_init() {
         // Purpose: Verify that the FSM is in the expected initial state after creation
 
         // Arrange
@@ -125,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn test_elevator_fsm_new_floor_sensor() {
+    fn test_fsm_floor_hit() {
         // Purpose: Verify that the FSM updates the floor when the floor sensor is triggered
 
         // Arrange
@@ -165,5 +162,48 @@ mod tests {
         // Cleanup
         terminate_tx.send(()).unwrap();
         fsm_thread.join().unwrap();
+    }
+
+    #[test]
+    fn test_fsm_choose_direction() {
+        // Purpose: Verify that the FSM chooses the correct direction when the floor sensor is triggered
+
+        // Arrange
+        let (mut fsm,
+            _hw_motor_direction_rx,
+            _hw_floor_sensor_tx,
+            _hw_door_light_rx,
+            _hw_obstruction_tx,
+            _hw_stop_button_tx,
+            _fsm_hall_requests_tx,
+            _fsm_cab_request_tx,
+            _fsm_order_complete_rx,
+            _fsm_state_rx,
+            _terminate_tx) = setup_fsm();
+
+        let state1 = ElevatorState {
+            behaviour: Moving,
+            floor: 0,
+            direction: Stop,
+            cab_requests: vec![false; 4],
+        };
+
+        let state2 = ElevatorState {
+            behaviour: Moving,
+            floor: 1,
+            direction: Stop,
+            cab_requests: vec![false; 4],
+        };
+
+        // Act
+        fsm.test_set_state(state1);
+        fsm.test_set_state(state2);
+        let direction1 = fsm.test_choose_direction();
+        let direction2 = fsm.test_choose_direction();
+
+        // Assert
+        assert_eq!(direction1, Up);
+        assert_eq!(direction2, Down);
+
     }
 }
