@@ -2,6 +2,7 @@
 /*        3rd party libraries          */
 /***************************************/
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
+use log::info;
 use network_rust::udpnet::peers::PeerUpdate;
 use std::{collections::HashMap, process::Command};
 use crossbeam_channel as cbc;
@@ -173,7 +174,6 @@ impl Coordinator {
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::NewPackage(elevator_data) => {
-                println!("New package: {:?}", elevator_data);
                 let merge_type = self.check_version(elevator_data.version);
 
                 match merge_type {
@@ -220,6 +220,7 @@ impl Coordinator {
 
             Event::NewPeerUpdate(peer_update) => {
                 let mut lost_elevators = peer_update.lost;
+                info!("Peers: {:?}", peer_update.peers);
 
                 //Removing dead elevators
                 for elevator in lost_elevators.iter_mut() {
