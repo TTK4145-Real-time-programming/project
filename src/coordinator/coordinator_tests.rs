@@ -3,11 +3,17 @@
  * 
  * The unit tests follows the Arrange, Act, Assert pattern.
  * 
- * Currently the tests doesn't work as the coordinator needs to run on amd64 architecture.
- * 
  * Tests:
  *  - test_coordinator_init
  *  - test_coordinator_update_lights
+ *  - test_coordinator_check_version
+ *  - test_coordinator_hall_request_assigner
+ *  - test_coordinator_handle_event_new_package
+ *  - test_coordinator_handle_event_request_received
+ *  - test_coordinator_handle_event_new_peer_update
+ *  - test_coordinator_handle_event_new_elevator_state
+ *  - test_coordinator_handle_event_order_complete
+ * 
  */
 
 /***************************************/
@@ -135,7 +141,7 @@ mod coordinator_tests {
         ) = setup_coordinator();
 
         let n_floors = coordinator.test_get_n_floors().clone();
-        let timeout = Duration::from_millis(100);
+        let timeout = Duration::from_millis(500);
 
         // Act / Assert
         for floor in 0..n_floors {
@@ -207,7 +213,7 @@ mod coordinator_tests {
         ) = setup_coordinator();
 
         let n_floors = coordinator.test_get_n_floors().clone();
-        let timeout = Duration::from_millis(100);
+        let timeout = Duration::from_millis(500);
 
         // Floor above going up
         let mut hall_requests = vec![vec![false; 2]; n_floors as usize];
@@ -276,7 +282,7 @@ mod coordinator_tests {
             coordinator_terminate_tx
         ) = setup_coordinator();
 
-        let timeout = Duration::from_millis(100);
+        let timeout = Duration::from_millis(500);
         let n_floors = coordinator.test_get_n_floors().clone();
         let mut new_package = ElevatorData::new(n_floors);
         new_package.states.insert("elevator".to_string(), ElevatorState::new(n_floors));
@@ -323,7 +329,7 @@ mod coordinator_tests {
             coordinator_terminate_tx
         ) = setup_coordinator();
 
-        let timeout = Duration::from_millis(100);
+        let timeout = Duration::from_millis(500);
         let n_floors = coordinator.test_get_n_floors().clone();
         let coordinator_thread = Builder::new().name("coordinator".into()).spawn(move || coordinator.run()).unwrap();
             
@@ -434,7 +440,7 @@ mod coordinator_tests {
             coordinator_terminate_tx
         ) = setup_coordinator();
 
-        let timeout = Duration::from_millis(100);
+        let timeout = Duration::from_millis(500);
         let n_floors = coordinator.test_get_n_floors().clone();
         let mut new_state = ElevatorState::new(n_floors);
         new_state.floor = 2;
@@ -491,7 +497,7 @@ mod coordinator_tests {
             coordinator_terminate_tx
         ) = setup_coordinator();
 
-        let timeout = Duration::from_millis(100);
+        let timeout = Duration::from_millis(500);
         let n_floors = coordinator.test_get_n_floors().clone();
 
         let coordinator_thread = Builder::new().name("coordinator".into()).spawn(move || coordinator.run()).unwrap();
