@@ -350,6 +350,9 @@ impl ElevatorFSM {
         orders_completed
     }
 
+    /*
+        TODO: Door state-change should be transmited to cordinator
+    */
     fn open_door(&mut self) {
         let _ = self.hw_door_light_tx.send(true);
         let _ = self.hw_motor_direction_tx.send(DIRN_STOP); // Don't like having this here
@@ -425,8 +428,8 @@ pub mod testing {
 
     impl ElevatorFSM {
         // Publicly expose the private fields for testing
-        pub fn test_get_state(&self) -> &ElevatorState {
-            &self.state
+        pub fn test_get_state(&self) -> ElevatorState {
+            self.state.clone()
         }
 
         pub fn test_set_hall_requests(&mut self, hall_requests: Vec<Vec<bool>>) {

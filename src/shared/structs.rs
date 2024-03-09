@@ -48,7 +48,7 @@ impl From<u8> for Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone,PartialEq)]
 pub struct ElevatorState {
     pub behaviour: Behaviour,
     pub floor: u8,
@@ -56,6 +56,7 @@ pub struct ElevatorState {
     #[serde(rename = "cabRequests")]
     pub cab_requests: Vec<bool>,
 }
+
 
 impl ElevatorState {
     pub fn new(n_floors: u8) -> ElevatorState {
