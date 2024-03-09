@@ -15,20 +15,19 @@ use crate::shared::{Behaviour, Direction, ElevatorData, ElevatorState};
 /***************************************/
 /*               Enums                 */
 /***************************************/
-enum Event {
+pub enum Event {
     NewPackage(ElevatorData),
     RequestReceived((u8, u8)),
     NewPeerUpdate(PeerUpdate),
     NewElevatorState(ElevatorState),
     OrderComplete((u8, u8)),
-    NoEvent,
-    Terminate,
 }
 
-#[derive(PartialEq)]
-enum MergeType {
+#[derive(PartialEq, Debug)]
+pub enum MergeType {
     Conflict,
-    Inherit,
+    Accept,
+    Reject,
 }
 
 /***************************************/
@@ -104,8 +103,70 @@ impl Coordinator {
     pub fn run(&mut self) {
         // Main loop
         loop {
-            let event: Event = self.wait_for_event();
-            self.handle_event(event);
+            cbc::select! {
+                //Handling new package
+                recv(self.net_data_recv_rx) -> package => {
+                   match package {
+                        Ok(elevator_data) => self.handle_event(Event::NewPackage(elevator_data)),
+                        Err(e) => {
+                            eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
+                            std::process::exit(1);
+                        }
+                    }
+                },
+    
+                //Hanlding peer update
+                recv(self.net_peer_update_rx) -> peer => {
+                    match peer {
+                        Ok(peer_update) => self.handle_event(Event::NewPeerUpdate(peer_update)),
+                        Err(e) => {
+                            eprintln!("Error extracting peer update package in coordinator: {:?}\r\n", e);
+                            std::process::exit(1);
+                        }
+                    }
+                },
+    
+                //Handling new button press
+                recv(self.hw_request_rx) -> request => {
+                    match request {
+                        Ok(request) => self.handle_event(Event::RequestReceived(request)),
+                        Err(e) => {
+                            eprintln!("Error extracting button package in coordinator: {:?}\r\n", e);
+                            std::process::exit(1);
+                        }
+                    }
+                },
+    
+                // Handling new fsm state
+                recv(self.fsm_state_rx) -> state => {
+                    match state {
+                        Ok(state) => self.handle_event(Event::NewElevatorState(state)),
+                        Err(e) => {
+                            eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
+                            std::process::exit(1);
+                        }
+                    }
+                },
+    
+                // Handling completed order from fsm
+                recv(self.fsm_order_complete_rx) -> completed_order => {
+                    match completed_order {
+                        Ok(finish_order) => self.handle_event(Event::OrderComplete(finish_order)),
+                        Err(e) => {
+                            eprintln!("Error extracting completed order from fsm in coordinator: {:?}\r\n", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+    
+                recv(self.coordinator_terminate_rx) -> _ => {
+                    break;
+                }
+    
+                default(Duration::from_millis(50)) => {
+                    // TODO: Maybe do something idunno
+                }
+            }
         }
     }
 
@@ -116,7 +177,7 @@ impl Coordinator {
                 let merge_type = self.check_version(elevator_data.version);
 
                 match merge_type {
-                    MergeType::Inherit => {
+                    MergeType::Accept => {
                         //Updating lights
                         let new_hall_request = elevator_data.hall_requests.clone();
                         for floor in 0..self.n_floors {
@@ -151,6 +212,9 @@ impl Coordinator {
                     MergeType::Conflict => {
                         // TODO: merge conflict
                     }
+                    MergeType::Reject => {
+                        // TODO: reject merge
+                    }
                 }
             }
 
@@ -164,7 +228,6 @@ impl Coordinator {
 
                 // Add new elevators
                 for id in peer_update.new.iter() {
-                    println!("New elevator: {:?}", id);
                     self.elevator_data.states.insert(
                         id.clone(),
                         ElevatorState {
@@ -196,23 +259,16 @@ impl Coordinator {
                 } 
                 
                 else if request.1 == HALL_DOWN || request.1 == HALL_UP {
-                    //Checking if hall button has already been handled
-                    if !self.check_hall_button(request.0, request.1) {
-                        //Updating hall requests
-                        self.elevator_data.hall_requests[request.0 as usize][request.1 as usize] = true;
+                    //Updating hall requests
+                    self.elevator_data.hall_requests[request.0 as usize][request.1 as usize] = true;
 
-                        // Calculating and sending to fsm
-                        self.hall_request_assigner(true);
+                    // Calculating and sending to fsm
+                    self.hall_request_assigner(true);
 
-                        // Updating lights
-                        self.update_lights((request.0, request.1, true));
-                    }
+                    // Updating lights
+                    self.update_lights((request.0, request.1, true));
                 }
 
-                // Send the updated elevator data
-                self.net_data_send_tx
-                    .send(self.elevator_data.clone())
-                    .expect("Failed to send elevator data to network thread");
             }
 
             Event::NewElevatorState(elevator_state) => {
@@ -220,11 +276,9 @@ impl Coordinator {
                 let current_cab_requests = &self.elevator_data.states[&self.local_id].cab_requests;
 
                 for floor in 0..self.n_floors {
-                    if current_cab_requests[floor as usize]
-                        != elevator_state.cab_requests[floor as usize]
-                    {
+                    if !current_cab_requests[floor as usize] && elevator_state.cab_requests[floor as usize] {
                         //Updating cab button lights with new changes from FSM
-                        self.update_lights((floor, CAB, current_cab_requests[floor as usize]));
+                        self.update_lights((floor, CAB, true));
                     }
                 }
 
@@ -235,10 +289,6 @@ impl Coordinator {
 
                 self.hall_request_assigner(true);
 
-                // Send the updated ElevatorData
-                self.net_data_send_tx
-                    .send(self.elevator_data.clone())
-                    .expect("Failed to send elevator data to network thread");
             }
 
             Event::OrderComplete(completed_order) => {
@@ -254,95 +304,11 @@ impl Coordinator {
                 if completed_order.1 == HALL_DOWN || completed_order.1 == HALL_UP {
                     self.elevator_data.hall_requests[completed_order.0 as usize][HALL_DOWN as usize] = false;
                 }
-
+                
                 // Update lights and hall requests
                 self.update_lights((completed_order.0, completed_order.1, false));
                 self.hall_request_assigner(true);
             }
-
-            Event::Terminate => {
-                println!("Coordinator terminated");
-                std::process::exit(0);
-            }
-
-            Event::NoEvent => {
-                // Do some data cleanup?
-            }
-        }
-    }
-
-    fn wait_for_event(&self) -> Event {
-        cbc::select! {
-            //Handling new package
-            recv(self.net_data_recv_rx) -> package => {
-               match package {
-                    Ok(elevator_data) => {
-                        Event::NewPackage(elevator_data)
-                    },
-                    Err(e) => {
-                        eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
-                        std::process::exit(1);
-                    }
-                }
-            },
-
-            //Hanlding peer update
-            recv(self.net_peer_update_rx) -> peer => {
-                match peer {
-                    Ok(peer_update) => {
-                        Event::NewPeerUpdate(peer_update)
-                    },
-                    Err(e) => {
-                        eprintln!("Error extracting peer update package in coordinator: {:?}\r\n", e);
-                        std::process::exit(1);
-                    }
-                }
-            },
-
-            //Handling new button press
-            recv(self.hw_request_rx) -> request => {
-                match request {
-                    Ok(request) => {
-                        Event::RequestReceived(request)
-                    },
-                    Err(e) => {
-                        eprintln!("Error extracting button package in coordinator: {:?}\r\n", e);
-                        std::process::exit(1);
-                    }
-                }
-            },
-
-            // Handling new fsm state
-            recv(self.fsm_state_rx) -> state => {
-                match state {
-                    Ok(state) => {
-                        Event::NewElevatorState(state)
-                    },
-                    Err(e) => {
-                        eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
-                        std::process::exit(1);
-                    }
-                }
-            },
-
-            // Handling completed order from fsm
-            recv(self.fsm_order_complete_rx) -> completed_order => {
-                match completed_order {
-                    Ok(finish_order) => {
-                        Event::OrderComplete(finish_order)
-                    },
-                    Err(e) => {
-                        eprintln!("Error extracting completed order from fsm in coordinator: {:?}\r\n", e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-
-            recv(self.coordinator_terminate_rx) -> _ => {
-                Event::Terminate
-            }
-
-            default(Duration::from_millis(50)) => Event::NoEvent,
         }
     }
 
@@ -360,70 +326,133 @@ impl Coordinator {
 
     // Calcualting hall requests
     fn hall_request_assigner(&mut self, transmit: bool) {
-        let hra_input =
-            serde_json::to_string(&self.elevator_data).expect("Failed to serialize data");
+        let hra_input = serde_json::to_string(&self.elevator_data).expect("Failed to serialize data");
 
-        // Run the Linux executable with serialized_data as input
+        // Run the executable with serialized_data as input
         let hra_output = Command::new("./src/coordinator/hall_request_assigner")
             .arg("--input")
             .arg(&hra_input)
             .output()
             .expect("Failed to execute hall_request_assigner");
 
-        // Check if the command was executed successfully
         if hra_output.status.success() {
-            // The output of the executable is in the `stdout` field of the `hra_output` variable
-            let hra_output_str =
-                String::from_utf8(hra_output.stdout).expect("Invalid UTF-8 hra_output");
-            let hra_output =
-                serde_json::from_str::<HashMap<String, Vec<Vec<bool>>>>(&hra_output_str)
+            // Fetch and deserialize output
+            let hra_output_str = String::from_utf8(hra_output.stdout).expect("Invalid UTF-8 hra_output");
+            let hra_output = serde_json::from_str::<HashMap<String, Vec<Vec<bool>>>>(&hra_output_str)
                     .expect("Failed to deserialize hra_output");
 
-            // Update hall requests assigned to local elevator (HRA has three inner dimentions lol)
+            // Update hall requests assigned to local elevator
             let mut local_hall_requests = vec![vec![false; 2]; self.n_floors as usize];
             for (id, hall_requests) in hra_output.iter() {
                 if id == &self.local_id {
                     for floor in 0..self.n_floors {
-                        local_hall_requests[floor as usize][HALL_UP as usize] =
-                            hall_requests[floor as usize][HALL_UP as usize];
-                        local_hall_requests[floor as usize][HALL_DOWN as usize] =
-                            hall_requests[floor as usize][HALL_DOWN as usize];
+                        local_hall_requests[floor as usize][HALL_UP as usize] = hall_requests[floor as usize][HALL_UP as usize];
+                        local_hall_requests[floor as usize][HALL_DOWN as usize] = hall_requests[floor as usize][HALL_DOWN as usize];
                     }
                 }
             }
 
-            self.fsm_hall_requests_tx
-                .send(local_hall_requests)
-                .expect("Failed to send hall requests to fsm");
-        } else {
+            self.fsm_hall_requests_tx.send(local_hall_requests).expect("Failed to send hall requests to fsm");
+        } 
+        
+        else {
             // If the executable did not run successfully, you can handle the error
-            let error_message =
-                String::from_utf8(hra_output.stderr).expect("Invalid UTF-8 error hra_output");
+            let error_message = String::from_utf8(hra_output.stderr).expect("Invalid UTF-8 error hra_output");
             eprintln!("Error executing hall_request_assigner: {:?}", error_message);
             std::process::exit(1);
         }
 
-        // Send orders that belongs to fsm
+        // Transmit the updated elevator on the network
+        if transmit {
+            self.elevator_data.version += 1;
+            self.net_data_send_tx
+                .send(self.elevator_data.clone())
+                .expect("Failed to send elevator data to network thread");
+        }
     }
 
     // Checks if incomming version is newer than local version
     fn check_version(&self, version: u64) -> MergeType {
         if version > self.elevator_data.version {
-            MergeType::Inherit
-        } else {
+            MergeType::Accept
+        } 
+        
+        else if version == self.elevator_data.version {
             MergeType::Conflict
+        }
+
+        else {
+            MergeType::Reject
         }
     }
 
-    // Checks if hall button is already been handled (return false if not pressed)
-    fn check_hall_button(&self, floor: u8, call: u8) -> bool {
-        if call == HALL_DOWN && !self.elevator_data.hall_requests[floor as usize][0] {
-            return false
+}
+
+/***************************************/
+/*              Test API               */
+/***************************************/
+#[cfg(test)]
+pub mod testing {
+    use super::Coordinator;
+    use crate::shared::ElevatorData;
+    use crate::shared::ElevatorState;
+    use network_rust::udpnet::peers::PeerUpdate;
+
+    impl Coordinator {
+        // Publicly expose the private fields for testing
+        pub fn test_get_data(&self) -> &ElevatorData {
+            &self.elevator_data
         }
-        if call == HALL_UP && !self.elevator_data.hall_requests[floor as usize][1] {
-            return false
+
+        pub fn test_get_local_id(&self) -> &String {
+            &self.local_id
         }
-        // Hall request has already been handled
-        true
+        
+        pub fn test_get_n_floors(&self) -> &u8 {
+            &self.n_floors
+        }
+
+        pub fn test_update_lights(&self, light: (u8, u8, bool)) {
+            self.update_lights(light);
+        }
+
+        pub fn test_check_version(&self, version: u64) -> super::MergeType {
+            self.check_version(version)
+        }
+
+        pub fn test_set_version(&mut self, version: u64) {
+            self.elevator_data.version = version;
+        }
+
+        pub fn test_hall_request_assigner(&mut self, transmit: bool) {
+            self.hall_request_assigner(transmit);
+        }
+
+        pub fn test_set_hall_requests(&mut self, hall_requests: Vec<Vec<bool>>) {
+            self.elevator_data.hall_requests = hall_requests;
+        }
+
+        pub fn test_set_state(&mut self, elevator: String, state: ElevatorState) {
+            self.elevator_data.states.insert(elevator, state);
+        }
+
+        pub fn test_handle_event(&mut self, event: super::Event) {
+            self.handle_event(event);
+        }
+
+        pub fn test_set_peer_list(&mut self, peer_list: PeerUpdate) {
+            for id in peer_list.peers.iter() {
+                self.elevator_data.states.insert(id.clone(), ElevatorState::new(self.n_floors));
+            }
+        }
+
+        pub fn test_get_peer_list(&self) -> Vec<String> {
+            let mut peer_list = vec![];
+            for id in self.elevator_data.states.keys() {
+                peer_list.push(id.clone());
+            }
+            peer_list.reverse();
+            peer_list
+        }
     }
 }

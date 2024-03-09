@@ -48,7 +48,7 @@ impl From<u8> for Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ElevatorState {
     pub behaviour: Behaviour,
     pub floor: u8,
@@ -68,7 +68,7 @@ impl ElevatorState {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ElevatorData {
     #[serde(skip_serializing, skip_deserializing)]
     pub version: u64,
