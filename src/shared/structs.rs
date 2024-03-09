@@ -57,6 +57,7 @@ pub struct ElevatorState {
     pub cab_requests: Vec<bool>,
 }
 
+
 impl ElevatorState {
     pub fn new(n_floors: u8) -> ElevatorState {
         ElevatorState {

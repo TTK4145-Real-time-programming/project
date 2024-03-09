@@ -428,8 +428,8 @@ pub mod testing {
 
     impl ElevatorFSM {
         // Publicly expose the private fields for testing
-        pub fn test_get_state(&self) -> &ElevatorState {
-            &self.state
+        pub fn test_get_state(&self) -> ElevatorState {
+            self.state.clone()
         }
 
         pub fn test_set_hall_requests(&mut self, hall_requests: Vec<Vec<bool>>) {
