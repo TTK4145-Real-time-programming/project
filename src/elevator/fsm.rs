@@ -153,6 +153,7 @@ impl ElevatorFSM {
                     match request {
                         Ok(request) => {
                             self.state.cab_requests[request as usize] = true;
+                            let _ = self.fsm_state_tx.send(self.state.clone());
                         }
                         Err(e) => {
                             eprintln!("ERROR - fsm_cab_request_rx: {}", e);
