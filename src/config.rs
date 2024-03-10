@@ -19,6 +19,8 @@ pub struct NetworkConfig {
     pub id_gen_address: String,
     pub msg_port: u16,
     pub peer_port: u16,
+    pub max_retries: u32,
+    pub ack_timeout: u64,
 }
 
 #[derive(Deserialize, Clone)]

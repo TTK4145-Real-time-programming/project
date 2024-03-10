@@ -232,8 +232,6 @@ impl ElevatorFSM {
                     }
                 }
 
-                self.log_orders();
-
                 // Send new state to coordinator
                 let _ = self.fsm_state_tx.send(self.state.clone());
             }

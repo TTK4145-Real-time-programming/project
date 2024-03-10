@@ -14,8 +14,8 @@
  *
  * # Constructor arguments
  * - `config`:                  Network configuration settings.
- * - `custom_net_data_send_rx`:     Receiver for elevator data to be sent.
- * - `custom_net_data_recv_tx`:     Sender for forwarding received elevator data.
+ * - `net_data_send_rx`:     Receiver for elevator data to be sent.
+ * - `net_data_recv_tx`:     Sender for forwarding received elevator data.
  * - `net_peer_update_tx`:          Sender for forwarding received peer updates.
  * - `net_peer_tx_enable_rx`:       Receiver to enable/disable peer ID broadcasting.
  *
@@ -26,10 +26,13 @@
 /***************************************/
 use crossbeam_channel as cbc;
 use network_rust::udpnet;
+use std::net::UdpSocket;
 use std::thread::Builder;
+use std::time::{Duration, Instant};
 use std::process;
 use std::net;
-use log::info;
+use std::str;
+use log::{info, error};
 
 /***************************************/
 /*           Local modules             */
@@ -47,21 +50,24 @@ pub struct Network {
 impl Network {
     pub fn new(
         config: &NetworkConfig,
-        custom_net_data_send_rx: cbc::Receiver<ElevatorData>,
-        custom_net_data_recv_tx: cbc::Sender<ElevatorData>,
+        net_data_send_rx: cbc::Receiver<ElevatorData>,
+        net_data_recv_tx: cbc::Sender<ElevatorData>,
         net_peer_update_tx: cbc::Sender<udpnet::peers::PeerUpdate>,
         net_peer_tx_enable_rx: cbc::Receiver<bool>,
     ) -> std::io::Result<Network> {
+
+        let msg_port = config.msg_port;
+        let peer_port = config.peer_port;
+        let ack_timeout = config.ack_timeout;
+        let max_retries = config.max_retries;
+
         let local_ip = net::TcpStream::connect(config.id_gen_address.clone())
             .unwrap()
             .local_addr()
             .unwrap()
             .ip();
-        let id = format!("rust@{}#{}", local_ip, process::id());
+        let id = format!("{}:{}", local_ip, msg_port.clone());
         info!("ID: {}", id);
-
-        let msg_port = config.msg_port;
-        let peer_port = config.peer_port;
         let id_tx = id.clone();
 
         // Thread for broadcasting peer ID
@@ -84,26 +90,133 @@ impl Network {
             })
             .unwrap();
 
-        // Thread for sending out data packets. Packets are receiver from
+
+        // Thread for sending out data
         let data_tx_thread = Builder::new().name("data_tx".into());
         data_tx_thread
             .spawn(move || {
-                if udpnet::bcast::tx(msg_port, custom_net_data_send_rx).is_err() {
-                    process::exit(1);
+                let max_retries = max_retries;
+                let ack_timeout = ack_timeout;
+                loop {
+                    // Wait to receive packet to transmit
+                    match net_data_send_rx.recv() {
+                        Ok(data) => {
+                            // Get all available peer addresses
+                            let peer_addresses = data.states.keys().cloned().collect::<Vec<String>>();
+
+                            // Create a UDP socket
+                            let socket = match UdpSocket::bind("0.0.0.0:0") {
+                                Ok(s) => s,
+                                Err(_) => process::exit(1),
+                            };
+
+                            // Send data to all available peers
+                            for peer_address in peer_addresses {
+                                let mut retries = 0;
+
+                                // Serialize the data
+                                let serialized_data_string = serde_json::to_string(&data).unwrap();
+                                let serialized_data = serialized_data_string.as_bytes();
+
+                                // Retry until max_retries or ACK received
+                                while retries < max_retries {
+                                    
+                                    if socket.send_to(&serialized_data, &peer_address).is_ok() {
+                                        let start = Instant::now();
+                                        let mut ack_received = false;
+
+                                        // Set a non-blocking read timeout for ACK
+                                        socket.set_read_timeout(Some(Duration::from_millis(ack_timeout))).unwrap();
+
+                                        while start.elapsed() < Duration::from_millis(ack_timeout) {
+                                            let mut buffer = [0; 1024];
+                                            match socket.recv_from(&mut buffer) {
+                                                Ok((_number_of_bytes, src_addr)) => {
+                                                    if src_addr.to_string() == peer_address {
+
+                                                        // Verify if the received message is an ACK
+                                                        let msg = String::from_utf8_lossy(&buffer[.._number_of_bytes]);
+                                                        let ack = msg.trim();
+                                                        if ack == "ACK" {
+                                                            ack_received = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                },
+                                                Err(_) => continue, // Timeout
+                                            }
+                                        }
+
+                                        if ack_received {
+                                            break; // Exit the retry loop on receiving ACK
+                                        }
+                                        info!("No ACK received, retrying...");
+                                        retries += 1;
+                                    } 
+                                    
+                                    else {
+                                        info!("Failed to send data to {}", peer_address);
+                                        retries += 1;
+                                    }
+                                
+                                    if retries == max_retries {
+                                        info!("Failed to send data to {} after {} retries", peer_address, max_retries);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => error!("Error receiving data to send: {}", e),
+                    }
                 }
+
             })
             .unwrap();
 
-        // Thread for receiving data packets. Packets are forwarded to
+
+        // Thread for receiving data packets
         let data_rx_thread = Builder::new().name("data_rx".into());
-        data_rx_thread
-            .spawn(move || {
-                if udpnet::bcast::rx(msg_port, custom_net_data_recv_tx).is_err() {
+        data_rx_thread.spawn(move || {
+            let socket = match UdpSocket::bind(format!("0.0.0.0:{}", msg_port)) {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Failed to bind UDP socket on port {}: {}", msg_port, e);
                     process::exit(1);
                 }
-            })
-            .unwrap();
+            };
 
-        Ok(Network { id: id })
+            loop {
+                let mut buffer = [0; 1024];
+                match socket.recv_from(&mut buffer) {
+                    Ok((number_of_bytes, src_addr)) => {
+                        // Deserialize or directly use the data as needed
+                        let received_data = &buffer[..number_of_bytes];
+                        let message = match str::from_utf8(received_data) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                error!("Invalid UTF-8 sequence: {}", e);
+                                continue;
+                            }
+                        };
+
+                        // Deserialize into ElevatorData
+                        let deserialized_message: ElevatorData = serde_json::from_str(message).unwrap();
+
+                        // Send the received message on the channel
+                        match net_data_recv_tx.send(deserialized_message) {
+                            Ok(_) => (),
+                            Err(e) => error!("Failed to send received data to coordinator: {}", e),
+                        }
+
+                        // Send ACK back to the sender
+                        if let Err(e) = socket.send_to(b"ACK", src_addr) {
+                            error!("Failed to send ACK to {}: {}", src_addr, e);
+                        }
+                    },
+                    Err(e) => error!("Failed to receive a message: {}", e),
+                }
+            }
+        }).unwrap();
+
+        Ok(Network { id })
     }
 }

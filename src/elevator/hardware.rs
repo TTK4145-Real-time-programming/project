@@ -30,7 +30,6 @@
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
 use driver_rust::elevio::elev::Elevator;
 use crossbeam_channel as cbc;
-use std::fmt::format;
 use std::time::Duration;
 
 /***************************************/

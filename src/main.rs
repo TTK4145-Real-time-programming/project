@@ -38,36 +38,46 @@ fn main() -> std::io::Result<()> {
     // Parse command line arguments
     let matches = App::new("project")
         .version("1.0")
-        .author("Mathias Otnes")
         .about("Elevator project in TTK4145 distributed systems.")
         .arg(
-            Arg::with_name("simulator_address")
-                .long("simulator-address")
-                .value_name("ADDRESS")
-                .help("Sets the simulator address")
+            Arg::with_name("hardware_address")
+                .long("hardware-address")
+                .value_name("HARDWARE-ADDRESS")
+                .help("Sets the hardware address")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("simulator_port")
-                .long("simulator-port")
-                .value_name("PORT")
-                .help("Sets the simulator port")
+            Arg::with_name("hardware_port")
+                .long("hardware-port")
+                .value_name("HARDWARE-PORT")
+                .help("Sets the hardware port")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("network_port")
+                .long("network-port")
+                .value_name("NETWORK-PORT")
+                .help("Sets the network data port")
                 .takes_value(true),
         )
         .get_matches();
 
     // Override config with command line arguments if provided
-    if let Some(addr) = matches.value_of("simulator_address") {
+    if let Some(addr) = matches.value_of("hardware_address") {
         config.hardware.driver_address = addr.to_string();
     }
 
-    if let Some(port) = matches.value_of("simulator_port") {
-        config.hardware.driver_port = port.parse().expect("Failed to parse simulator port");
+    if let Some(port) = matches.value_of("hardware_port") {
+        config.hardware.driver_port = port.parse().expect("Failed to parse hardware port");
     }
 
-    info!("Socket address: {}", config.hardware.driver_address.to_string());
-    info!("Simulator port: {}", config.hardware.driver_port.to_string());
+    if let Some(port) = matches.value_of("network_port") {
+        config.network.msg_port = port.parse().expect("Failed to parse network port");
+    }
 
+    info!("Driver address: {}", config.hardware.driver_address.to_string());
+    info!("Driver port: {}", config.hardware.driver_port.to_string());
+    info!("Network port: {}", config.network.msg_port.to_string());
 
     // Termination signals
     let (_fsm_terminate_tx, fsm_terminate_rx) = cbc::unbounded::<()>();
