@@ -174,7 +174,6 @@ impl Coordinator {
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::NewPackage(elevator_data) => {
-                info!("New package received: {:?}", elevator_data);
                 let merge_type = self.check_version(elevator_data.version);
 
                 match merge_type {
@@ -294,7 +293,6 @@ impl Coordinator {
             }
 
             Event::OrderComplete(completed_order) => {
-
                 info!("Order completed: {:?}", completed_order);
                 // Updating elevator data
                 if completed_order.1 == CAB {
@@ -378,7 +376,6 @@ impl Coordinator {
         // Transmit the updated elevator on the network
         if transmit {
             self.elevator_data.version += 1;
-            info!("Sending data: {:?}", self.elevator_data.clone());
             self.net_data_send_tx
                 .send(self.elevator_data.clone())
                 .expect("Failed to send elevator data to network thread");

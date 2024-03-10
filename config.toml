@@ -2,6 +2,8 @@
 id_gen_address = "8.8.8.8:53"
 msg_port = 19734
 peer_port = 19738
+max_retries = 3
+ack_timeout = 4000
 
 [elevator]
 n_floors = 4
