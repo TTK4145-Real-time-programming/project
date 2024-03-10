@@ -197,7 +197,7 @@ impl ElevatorFSM {
                         }
                         DoorOpen => {
                             if self.obstruction {
-                                self.door_timer = Instant::now() + Duration::from_secs(self.door_open_time);
+                                self.door_timer = Instant::now() + Duration::from_millis(self.door_open_time);
                             } else if self.door_timer <= Instant::now() {
                                 self.close_door();
                             }
