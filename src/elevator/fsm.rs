@@ -185,6 +185,10 @@ impl ElevatorFSM {
                 default(Duration::from_millis(100)) => {
                     match self.state.behaviour {
                         Idle => {
+                            if self.complete_orders() {
+                                self.open_door();
+                            }
+
                             self.state.direction = self.choose_direction();
                             if self.state.direction != Stop {
                                 self.state.behaviour = Moving;
