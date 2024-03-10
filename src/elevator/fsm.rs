@@ -39,6 +39,7 @@
 use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
 use std::time::{Duration, Instant};
 use crossbeam_channel as cbc;
+use log::info;
 
 /***************************************/
 /*           Local modules             */
@@ -194,7 +195,6 @@ impl ElevatorFSM {
                             if self.obstruction {
                                 self.door_timer = Instant::now() + Duration::from_secs(self.door_open_time);
                             } else if self.door_timer <= Instant::now() {
-                                let _ = self.hw_door_light_tx.send(false);
                                 self.close_door();
                             }
                         }
@@ -214,6 +214,7 @@ impl ElevatorFSM {
                 if self.complete_orders() {
                     self.open_door();
                 }
+
                 // No orders at this floor, find next direction
                 else {
                     self.state.direction = self.choose_direction();
@@ -230,6 +231,8 @@ impl ElevatorFSM {
                             .send(self.state.direction.to_u8());
                     }
                 }
+
+                self.log_orders();
 
                 // Send new state to coordinator
                 let _ = self.fsm_state_tx.send(self.state.clone());
@@ -307,13 +310,10 @@ impl ElevatorFSM {
     // Returns true if order has been completed
     fn complete_orders(&mut self) -> bool {
         let current_floor = self.state.floor;
-        let is_top_floor = current_floor == self.n_floors - 1;
-        let is_bottom_floor = current_floor == 0;
         let mut orders_completed = false;
 
         // Remove cab orders at current floor.
         if self.state.cab_requests[current_floor as usize] {
-            // Open the door
             orders_completed = true;
 
             // Update the state and send it to the coordinator
@@ -325,7 +325,6 @@ impl ElevatorFSM {
         // Remove hall up orders.
         if self.hall_requests[current_floor as usize][HALL_UP as usize]
         {
-            // Open the door
             orders_completed = true;
 
             // Update the state and send it to the coordinator
@@ -338,7 +337,6 @@ impl ElevatorFSM {
         // Remove hall down orders.
         if self.hall_requests[current_floor as usize][HALL_DOWN as usize]
         {
-            // Open the door
             orders_completed = true;
 
             // Update the state and send it to the coordinator
@@ -347,6 +345,7 @@ impl ElevatorFSM {
                 .send((current_floor, HALL_DOWN))
                 .unwrap();
         }
+
         orders_completed
     }
 
@@ -358,22 +357,29 @@ impl ElevatorFSM {
         let _ = self.hw_motor_direction_tx.send(DIRN_STOP); // Don't like having this here
         self.door_timer = Instant::now() + Duration::from_millis(self.door_open_time);
         self.state.behaviour = DoorOpen;
+        let _ = self.fsm_state_tx.send(self.state.clone());
     }
 
     fn close_door(&mut self) {
         self.complete_orders();
         let _ = self.hw_door_light_tx.send(false);
         self.state.direction = self.choose_direction();
-        let _ = self
-            .hw_motor_direction_tx
-            .send(self.state.direction.to_u8());
-        self.state.behaviour = if self.state.direction == Stop {
-            Idle
-        } else {
-            Moving
-        };
+        let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+        if self.state.direction == Stop {
+            self.state.behaviour = Idle;
+        }
+        else {
+            self.state.behaviour = Moving;
+        }
         let _ = self.fsm_state_tx.send(self.state.clone());
     }
+
+    fn log_orders(&self) {
+        info!("CAB: {:?}", self.state.cab_requests);
+        info!("HALL: {:?}", self.hall_requests);
+    }
+
+
 
     // --------- Unused methods --------- //
 
