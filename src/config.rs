@@ -31,6 +31,7 @@ pub struct ElevatorConfig {
 pub struct HardwareConfig {
     pub n_floors: u8,
     pub driver_address: String,
+    pub driver_port: u16,
     pub hw_thread_sleep_time: u64,
 }
 

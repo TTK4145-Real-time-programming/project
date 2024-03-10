@@ -5,6 +5,8 @@ use crossbeam_channel as cbc;
 use network_rust::udpnet;
 use std::thread::Builder;
 use std::thread::*;
+use log::info;
+use clap::{App, Arg};
 
 /***************************************/
 /*           Local modules             */
@@ -26,8 +28,46 @@ mod shared;
 /*        Program entry point          */
 /***************************************/
 fn main() -> std::io::Result<()> {
+
+    // Initialize the logger
+    env_logger::init();
+
     // Load the configuration
-    let config = config::load_config();
+    let mut config = config::load_config();
+
+    // Parse command line arguments
+    let matches = App::new("project")
+        .version("1.0")
+        .author("Mathias Otnes")
+        .about("Elevator project in TTK4145 distributed systems.")
+        .arg(
+            Arg::with_name("simulator_address")
+                .long("simulator-address")
+                .value_name("ADDRESS")
+                .help("Sets the simulator address")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("simulator_port")
+                .long("simulator-port")
+                .value_name("PORT")
+                .help("Sets the simulator port")
+                .takes_value(true),
+        )
+        .get_matches();
+
+    // Override config with command line arguments if provided
+    if let Some(addr) = matches.value_of("simulator_address") {
+        config.hardware.driver_address = addr.to_string();
+    }
+
+    if let Some(port) = matches.value_of("simulator_port") {
+        config.hardware.driver_port = port.parse().expect("Failed to parse simulator port");
+    }
+
+    info!("Socket address: {}", config.hardware.driver_address.to_string());
+    info!("Simulator port: {}", config.hardware.driver_port.to_string());
+
 
     // Termination signals
     let (_fsm_terminate_tx, fsm_terminate_rx) = cbc::unbounded::<()>();

@@ -30,6 +30,7 @@
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
 use driver_rust::elevio::elev::Elevator;
 use crossbeam_channel as cbc;
+use std::fmt::format;
 use std::time::Duration;
 
 /***************************************/
@@ -75,7 +76,7 @@ impl ElevatorDriver {
         terminate_rx: cbc::Receiver<()>,
     ) -> ElevatorDriver {
         ElevatorDriver {
-            elevator: unwrap_or_exit!(Elevator::init(&config.driver_address, config.n_floors)),
+            elevator: unwrap_or_exit!(Elevator::init(&format!("{}:{}", &config.driver_address, &config.driver_port), config.n_floors)),
             thread_sleep_time: config.hw_thread_sleep_time,
             current_floor: u8::MAX,
             obstruction: false,

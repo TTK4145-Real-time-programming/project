@@ -1,0 +1,36 @@
+version: '3'
+
+services:
+  # simulator1:
+  #   build:
+  #     context: ./simulator
+  #   command: ["./simulator_linux", "--port", "15657"]
+  #   networks:
+  #     - simnet
+  #   ports:
+  #     - "15657:15657"
+
+  # simulator2:
+  #   build:
+  #     context: ./simulator
+  #   command: ["./simulator_linux", "--port", "15658"]
+  #   networks:
+  #     - simnet
+  #   ports:
+  #     - "15658:15658"
+
+  instance1:
+    build: .
+    command: ["/usr/src/project/target/release/project", "--simulator-port", "15657"]
+    networks:
+      - simnet
+
+  instance2:
+    build: .
+    command: ["/usr/src/project/target/release/project", "--simulator-port", "15658"]
+    networks:
+      - simnet
+
+networks:
+  simnet:
+    driver: bridge

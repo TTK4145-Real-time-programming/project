@@ -71,7 +71,6 @@ impl ElevatorState {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ElevatorData {
-    #[serde(skip_serializing, skip_deserializing)]
     pub version: u64,
     #[serde(rename = "hallRequests")]
     pub hall_requests: Vec<Vec<bool>>,

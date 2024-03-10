@@ -2,6 +2,7 @@
 /*        3rd party libraries          */
 /***************************************/
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
+use log::info;
 use network_rust::udpnet::peers::PeerUpdate;
 use std::{collections::HashMap, process::Command};
 use crossbeam_channel as cbc;
@@ -173,7 +174,7 @@ impl Coordinator {
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::NewPackage(elevator_data) => {
-                println!("New package: {:?}", elevator_data);
+                info!("New package received: {:?}", elevator_data);
                 let merge_type = self.check_version(elevator_data.version);
 
                 match merge_type {
@@ -220,6 +221,7 @@ impl Coordinator {
 
             Event::NewPeerUpdate(peer_update) => {
                 let mut lost_elevators = peer_update.lost;
+                info!("Peers: {:?}", peer_update.peers);
 
                 //Removing dead elevators
                 for elevator in lost_elevators.iter_mut() {
@@ -292,6 +294,8 @@ impl Coordinator {
             }
 
             Event::OrderComplete(completed_order) => {
+
+                info!("Order completed: {:?}", completed_order);
                 // Updating elevator data
                 if completed_order.1 == CAB {
                     self.elevator_data
@@ -302,7 +306,7 @@ impl Coordinator {
                 }
 
                 if completed_order.1 == HALL_DOWN || completed_order.1 == HALL_UP {
-                    self.elevator_data.hall_requests[completed_order.0 as usize][HALL_DOWN as usize] = false;
+                    self.elevator_data.hall_requests[completed_order.0 as usize][completed_order.1 as usize] = false;
                 }
                 
                 // Update lights and hall requests
@@ -326,7 +330,15 @@ impl Coordinator {
 
     // Calcualting hall requests
     fn hall_request_assigner(&mut self, transmit: bool) {
-        let hra_input = serde_json::to_string(&self.elevator_data).expect("Failed to serialize data");
+
+        // Serialize data
+        let mut json_value: serde_json::Value = serde_json::to_value(&self.elevator_data)
+            .expect("Failed to serialize data");
+
+        // Remove the `version` field from the serialized data
+        json_value.as_object_mut().unwrap().remove("version");
+
+        let hra_input = serde_json::to_string(&json_value).expect("Failed to serialize data");
 
         // Run the executable with serialized_data as input
         let hra_output = Command::new("./src/coordinator/hall_request_assigner")
@@ -352,6 +364,7 @@ impl Coordinator {
                 }
             }
 
+            // Transmit the updated hall requests to the FSM
             self.fsm_hall_requests_tx.send(local_hall_requests).expect("Failed to send hall requests to fsm");
         } 
         
@@ -365,6 +378,7 @@ impl Coordinator {
         // Transmit the updated elevator on the network
         if transmit {
             self.elevator_data.version += 1;
+            info!("Sending data: {:?}", self.elevator_data.clone());
             self.net_data_send_tx
                 .send(self.elevator_data.clone())
                 .expect("Failed to send elevator data to network thread");

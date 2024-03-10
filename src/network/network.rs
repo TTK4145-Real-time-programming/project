@@ -28,8 +28,8 @@ use crossbeam_channel as cbc;
 use network_rust::udpnet;
 use std::thread::Builder;
 use std::process;
-use std::env;
 use std::net;
+use log::info;
 
 /***************************************/
 /*           Local modules             */
@@ -52,16 +52,13 @@ impl Network {
         net_peer_update_tx: cbc::Sender<udpnet::peers::PeerUpdate>,
         net_peer_tx_enable_rx: cbc::Receiver<bool>,
     ) -> std::io::Result<Network> {
-        let id = if env::args().len() > 1 {
-            env::args().nth(1).unwrap()
-        } else {
-            let local_ip = net::TcpStream::connect(config.id_gen_address.clone())
-                .unwrap()
-                .local_addr()
-                .unwrap()
-                .ip();
-            format!("rust@{}#{}", local_ip, process::id())
-        };
+        let local_ip = net::TcpStream::connect(config.id_gen_address.clone())
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .ip();
+        let id = format!("rust@{}#{}", local_ip, process::id());
+        info!("ID: {}", id);
 
         let msg_port = config.msg_port;
         let peer_port = config.peer_port;

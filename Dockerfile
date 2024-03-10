@@ -9,6 +9,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 # Add Rust to the PATH
 ENV PATH="/root/.cargo/bin:${PATH}"
+ENV RUST_LOG=info
 
 # Set the working
 WORKDIR /usr/src/project
