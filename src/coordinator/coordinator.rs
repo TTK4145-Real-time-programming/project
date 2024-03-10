@@ -178,23 +178,18 @@ impl Coordinator {
 
                 match merge_type {
                     MergeType::Accept => {
-                        //Updating lights
+
+                        // Updating lights for new requests
                         let new_hall_request = elevator_data.hall_requests.clone();
                         for floor in 0..self.n_floors {
-                            if new_hall_request[floor as usize][HALL_DOWN as usize]
-                                != self.elevator_data.hall_requests[floor as usize]
-                                    [HALL_DOWN as usize]
-                            {
+                            if new_hall_request[floor as usize][HALL_DOWN as usize] != self.elevator_data.hall_requests[floor as usize][HALL_DOWN as usize] {
                                 self.update_lights((
                                     floor,
                                     HALL_DOWN,
                                     new_hall_request[floor as usize][HALL_DOWN as usize],
                                 ));
                             }
-                            if new_hall_request[floor as usize][HALL_UP as usize]
-                                != self.elevator_data.hall_requests[floor as usize]
-                                    [HALL_UP as usize]
-                            {
+                            if new_hall_request[floor as usize][HALL_UP as usize] != self.elevator_data.hall_requests[floor as usize][HALL_UP as usize] {
                                 self.update_lights((
                                     floor,
                                     HALL_UP,
@@ -202,19 +197,36 @@ impl Coordinator {
                                 ));
                             }
                         }
-                        //Writing the new changes to elevatorData
-                        self.elevator_data.version = elevator_data.version;
-                        self.elevator_data.hall_requests = new_hall_request;
-                        self.elevator_data.states = elevator_data.states;
 
+                        // Update local elevator data
+                        self.elevator_data = elevator_data.clone();
+
+                        // Update hall request for local elevator
                         self.hall_request_assigner(false);
+
                     }
+
                     MergeType::Conflict => {
-                        // TODO: merge conflict
+
+                        // Hall requests should be merged by keeping all requests to ensure no requests are lost
+                        for floor in 0..self.n_floors {
+                            self.elevator_data.hall_requests[floor as usize][HALL_DOWN as usize] |= elevator_data.hall_requests[floor as usize][HALL_DOWN as usize];
+                            self.elevator_data.hall_requests[floor as usize][HALL_UP as usize] |= elevator_data.hall_requests[floor as usize][HALL_UP as usize];
+                        }
+
+                        // Other elevators should overwrite their state, but not the local elevator
+                        for (id, state) in elevator_data.states.iter() {
+                            if id != &self.local_id {
+                                self.elevator_data.states.insert(id.clone(), state.clone());
+                            }
+                        }
+
+                        // Transmit the merged data on the network as a new version
+                        self.hall_request_assigner(true);
                     }
-                    MergeType::Reject => {
-                        // TODO: reject merge
-                    }
+
+                    MergeType::Reject => (), // Do nothing
+                    
                 }
             }
 
@@ -445,6 +457,14 @@ pub mod testing {
 
         pub fn test_set_state(&mut self, elevator: String, state: ElevatorState) {
             self.elevator_data.states.insert(elevator, state);
+        }
+
+        pub fn test_set_data(&mut self, data: ElevatorData) {
+            self.elevator_data = data;
+        }
+
+        pub fn test_set_local_id(&mut self, id: String) {
+            self.local_id = id;
         }
 
         pub fn test_handle_event(&mut self, event: super::Event) {

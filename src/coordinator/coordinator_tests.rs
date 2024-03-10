@@ -27,6 +27,7 @@ mod coordinator_tests {
     use crate::ElevatorState;
     use crate::ElevatorData;
     use crate::shared::Direction::Up;
+    use crate::shared::Behaviour::{Moving, Idle};
     use std::time::Duration;
     use std::thread::Builder;
     use core::panic;
@@ -530,6 +531,72 @@ mod coordinator_tests {
         // Cleanup
         coordinator_terminate_tx.send(()).unwrap();
         coordinator_thread.join().unwrap();
+    }
+
+    #[test]
+    fn test_coordinator_merge_conflict() {
+        // Arrange
+        let (
+            mut coordinator,
+            _hw_button_light_rx,
+            _hw_request_tx,
+            _fsm_hall_requests_rx,
+            _fsm_cab_request_rx,
+            _fsm_state_tx,
+            _fsm_order_complete_tx,
+            net_data_send_rx,
+            _net_data_recv_tx,
+            _net_peer_update_tx,
+            _coordinator_terminate_tx
+        ) = setup_coordinator();
+
+        let timeout = Duration::from_millis(500);
+        let n_floors = coordinator.test_get_n_floors().clone();
+
+        // Arrange incomming packet
+        let mut new_package = ElevatorData::new(n_floors);
+        new_package.states.insert("elevator1".to_string(), ElevatorState::new(n_floors));
+        new_package.states.insert("elevator2".to_string(), ElevatorState::new(n_floors));
+        new_package.states.get_mut("elevator1").unwrap().behaviour = Moving;
+        new_package.states.get_mut("elevator2").unwrap().behaviour = Moving;
+        new_package.version = 1;
+        new_package.hall_requests = vec![vec![false; 2]; n_floors as usize];
+        new_package.hall_requests[2][HALL_UP as usize] = true;
+
+        // Arrange local data
+        let mut local_data = ElevatorData::new(n_floors);
+        local_data.states.insert("elevator1".to_string(), ElevatorState::new(n_floors));
+        local_data.states.insert("elevator2".to_string(), ElevatorState::new(n_floors));
+        local_data.states.get_mut("elevator1").unwrap().behaviour = Idle;
+        local_data.states.get_mut("elevator2").unwrap().behaviour = Idle;
+        local_data.version = 1;
+        local_data.hall_requests = vec![vec![false; 2]; n_floors as usize];
+        local_data.hall_requests[2][HALL_DOWN as usize] = true;
+            
+        // Act
+        coordinator.test_set_local_id("elevator1".to_string());
+        coordinator.test_set_data(local_data.clone());
+        coordinator.test_handle_event(Event::NewPackage(new_package.clone()));
+
+        // Assert
+        match net_data_send_rx.recv_timeout(timeout) {
+            Ok(msg) => {
+                let mut expected_elevator_data = ElevatorData::new(n_floors);
+                expected_elevator_data.version = 2;
+                expected_elevator_data.hall_requests = vec![vec![false; 2]; n_floors as usize];
+                expected_elevator_data.hall_requests[2][HALL_UP as usize] = true;
+                expected_elevator_data.hall_requests[2][HALL_DOWN as usize] = true;
+                expected_elevator_data.states.insert("elevator1".to_string(), ElevatorState::new(n_floors));
+                expected_elevator_data.states.insert("elevator2".to_string(), ElevatorState::new(n_floors));
+                expected_elevator_data.states.get_mut("elevator1").unwrap().behaviour = Idle;
+                expected_elevator_data.states.get_mut("elevator2").unwrap().behaviour = Moving;
+                assert_eq!(msg.states.get("elevator1").unwrap().behaviour, Idle, "Mismatch for elevator1.behaviour");
+                assert_eq!(msg.states.get("elevator2").unwrap().behaviour, Moving, "Mismatch for elevator2.behaviour");
+                assert!(msg.hall_requests[2][HALL_UP as usize], "Mismatch for hall_requests[2][HALL_UP]");
+                assert!(msg.hall_requests[2][HALL_DOWN as usize], "Mismatch for hall_requests[2][HALL_DOWN]");
+            }
+            Err(e) => panic!("Error receiving net_data_recv_tx: {:?}", e),
+        }
     }
     
 }
