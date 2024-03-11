@@ -114,7 +114,7 @@ impl ElevatorFSM {
             fsm_terminate_rx,
             
             hall_requests: vec![vec![false; 2]; config.n_floors as usize],
-            state: ElevatorState::new(config.n_floors),
+            state: ElevatorState::new(config.n_floors, None),
             n_floors: config.n_floors,
             obstruction: false,
             door_open_time: config.door_open_time,
@@ -381,8 +381,6 @@ impl ElevatorFSM {
         info!("CAB: {:?}", self.state.cab_requests);
         info!("HALL: {:?}", self.hall_requests);
     }
-
-
 
     // --------- Unused methods --------- //
 

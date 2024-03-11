@@ -155,13 +155,17 @@ fn main() -> std::io::Result<()> {
 
     // Create the elevator data instance
     let _n_floors = config.hardware.n_floors.clone();
+    let _cab_calls = config.orders.cab_calls.clone();
     let mut _elevator_data = ElevatorData::new(_n_floors);
     _elevator_data
         .states
-        .insert(_id.clone(), ElevatorState::new(_n_floors));
+        .insert(_id.clone(), ElevatorState::new(_n_floors, Some(_cab_calls)));
+
+    info!("Elevator data read from file {:?}", _elevator_data);
 
     // Start the coordinator module
     let mut coordinator = Coordinator::new(
+        config,
         _elevator_data,
         _id,
         _n_floors,

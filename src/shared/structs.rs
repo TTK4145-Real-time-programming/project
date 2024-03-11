@@ -59,12 +59,12 @@ pub struct ElevatorState {
 
 
 impl ElevatorState {
-    pub fn new(n_floors: u8) -> ElevatorState {
+    pub fn new(n_floors: u8, cab_requests: Option<Vec<bool>>) -> ElevatorState {
         ElevatorState {
             behaviour: Behaviour::Idle,
             floor: 0,
             direction: Direction::Stop,
-            cab_requests: vec![false; n_floors as usize],
+            cab_requests: cab_requests.unwrap_or_else(|| vec![false; n_floors as usize]),
         }
     }
 }
