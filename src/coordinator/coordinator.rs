@@ -109,14 +109,7 @@ impl Coordinator {
 
     pub fn run(&mut self) {
         //Transmitting cab calls from file to fsm
-        let local_cab_request = self.elevator_data.states[&self.local_id].cab_requests.clone();
-        for floor in 0..self.n_floors {
-            if local_cab_request[floor as usize] == true {
-                self.fsm_cab_request_tx
-                .send(floor)
-                .expect("Failed to send cab request to fsm");
-            }
-        }
+        self.handle_saved_cab_calls();
 
         // Main loop
         loop {
@@ -428,15 +421,35 @@ impl Coordinator {
 
         // Serialize the Config instance to a TOML String
         let toml_string = toml::to_string_pretty(&self.config)
-        .expect("Failed to serialize config");
+            .expect("Failed to serialize config");
 
-        // Attempt to create the file, panicking if there's an error
+        // Attempt to create the file
         let mut file = File::create("config.toml")
             .expect("Failed to create file");
 
-        // Now that we've successfully obtained a File object, write to it
+        // Writing to file
         file.write_all(toml_string.as_bytes())
             .expect("Failed to write to file");
+    }
+
+    // Handles saved cab calls 
+    fn handle_saved_cab_calls(&mut self) {
+        //Setting cab orders from file to elevatorData
+        self.elevator_data
+            .states
+            .get_mut(&self.local_id)
+            .unwrap()
+            .cab_requests = self.config.orders.cab_calls.clone();
+        
+        // Transmitting all cab calls to fsm
+        let local_cab_request = self.elevator_data.states[&self.local_id].cab_requests.clone();
+        for floor in 0..self.n_floors {
+            if local_cab_request[floor as usize] == true {
+                self.fsm_cab_request_tx
+                .send(floor)
+                .expect("Failed to send cab request to fsm");
+            }
+        }
     }
 }
 
