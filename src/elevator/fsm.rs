@@ -228,10 +228,10 @@ impl ElevatorFSM {
                         }
                         Moving => {
                             if self.motor_timer <= Instant::now() {
-                                info!("Motor Loss elevator!");
                                 
                                 // Disconnecting elevator from network
                                 if self.peer_enable {
+                                    info!("Motor Loss elevator!");
                                     let _ = self.net_peer_tx_enable_tx.send(false);
                                     self.peer_enable = false;
                                 }
