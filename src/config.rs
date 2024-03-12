@@ -28,6 +28,7 @@ pub struct ElevatorConfig {
     pub n_floors: u8,
     pub door_open_time: u64,
     pub motor_driving_timeout: u64,
+    pub door_timeout: u64,
 }
 
 #[derive(Deserialize, Clone)]

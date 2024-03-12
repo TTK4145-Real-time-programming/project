@@ -81,6 +81,7 @@ pub struct ElevatorFSM {
     peer_enable: bool,
     door_open_time: u64,
     motor_driving_timeout: u64,
+    door_timeout: Instant,
     door_timer: Instant,
     motor_timer: Instant,
 }
@@ -125,6 +126,7 @@ impl ElevatorFSM {
             peer_enable: true,
             door_open_time: config.door_open_time,
             motor_driving_timeout: config.motor_driving_timeout,
+            door_timeout: Duration::from_millis(config.door_timeout),
             door_timer: Instant::now(),
             motor_timer: Instant::now(),
         }
@@ -224,6 +226,10 @@ impl ElevatorFSM {
                                     self.reset_motor_timer();
                                 }
                                 let _ = self.fsm_state_tx.send(self.state.clone());
+                            } else if (self.door_timeout + self.door_timeout) <= Instant::now() {
+                                info!("Door timeout. Re-assigning hall requests");
+                                self.net_peer_tx_enable_tx.send(false);
+                                self.peer_enable = false;
                             }
                         }
                         Moving => {
@@ -450,6 +456,11 @@ impl ElevatorFSM {
 
     fn close_door(&mut self) {
         let _ = self.hw_door_light_tx.send(false);
+
+        if !self.peer_enable {
+            self.net_peer_tx_enable_tx.send(true);
+            self.peer_enable = true;
+        }
     }
 
     // Handles saved cab calls 
