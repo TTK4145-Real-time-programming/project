@@ -201,9 +201,20 @@ impl ElevatorFSM {
                                 self.door_timer = Instant::now() + Duration::from_millis(self.door_open_time);
                             } else if self.door_timer <= Instant::now() {
                                 self.close_door();
+                                self.complete_orders();
+
+                                self.state.direction = self.choose_direction();
+                                let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+                                if self.state.direction == Stop {
+                                    self.state.behaviour = Idle;
+                                }
+                                else {
+                                    self.state.behaviour = Moving;
+                                }
+                                let _ = self.fsm_state_tx.send(self.state.clone());
                             }
                         }
-                        Moving => (), // Should implement stop button logic here
+                        Moving => (),
                     }
                 }
             }
@@ -213,8 +224,9 @@ impl ElevatorFSM {
     fn handle_floor_hit(&mut self, floor: u8) {
         self.state.floor = floor;
 
-        // If orders at this floor, complete them and open the door
+        // If orders at this floor, complete them, stop and open the door
         if self.complete_orders() {
+            let _ = self.hw_motor_direction_tx.send(Direction::Stop.to_u8());
             self.open_door();
         }
 
@@ -387,24 +399,13 @@ impl ElevatorFSM {
     */
     fn open_door(&mut self) {
         let _ = self.hw_door_light_tx.send(true);
-        let _ = self.hw_motor_direction_tx.send(Direction::Stop.to_u8()); // Don't like having this here
         self.door_timer = Instant::now() + Duration::from_millis(self.door_open_time);
         self.state.behaviour = DoorOpen;
         let _ = self.fsm_state_tx.send(self.state.clone());
     }
 
     fn close_door(&mut self) {
-        self.complete_orders();
         let _ = self.hw_door_light_tx.send(false);
-        self.state.direction = self.choose_direction();
-        let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
-        if self.state.direction == Stop {
-            self.state.behaviour = Idle;
-        }
-        else {
-            self.state.behaviour = Moving;
-        }
-        let _ = self.fsm_state_tx.send(self.state.clone());
     }
 
     fn log_orders(&self) {
