@@ -213,19 +213,25 @@ impl ElevatorFSM {
                         DoorOpen => {
                             if self.obstruction {
                                 self.reset_door_timer();
-                            } else if self.door_timer <= Instant::now() {
+                            } 
+                            
+                            else if self.door_timer <= Instant::now() {
                                 self.close_door();
+                                
+                                self.state.direction = self.choose_direction();
                                 self.complete_orders();
 
-                                self.state.direction = self.choose_direction();
                                 let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+
                                 if self.state.direction == Stop {
                                     self.state.behaviour = Idle;
                                 }
+                                
                                 else {
                                     self.state.behaviour = Moving;
                                     self.reset_motor_timer();
                                 }
+                                
                                 let _ = self.fsm_state_tx.send(self.state.clone());
                             }
                         }
@@ -268,16 +274,15 @@ impl ElevatorFSM {
             self.open_door();
         }
 
-        // No orders at this floor, find next direction
+        // Find next direction, and check if there are any orders
         else {
             self.state.direction = self.choose_direction();
 
             if self.state.direction == Stop {
                 self.state.behaviour = Idle;
-                let _ = self
-                    .hw_motor_direction_tx
-                    .send(self.state.direction.to_u8());
-            } else {
+                let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+            } 
+            else {
                 self.state.behaviour = Moving;
                 let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
                 self.reset_motor_timer();
@@ -375,7 +380,7 @@ impl ElevatorFSM {
 
         // State specific variables
         let current_direction = self.state.direction.clone();
-        let mut next_direction = current_direction.clone();
+        let current_behaviour = self.state.behaviour.clone();
         let mut orders_completed = false;
 
         // Remove cab orders at current floor.
@@ -393,7 +398,7 @@ impl ElevatorFSM {
         }
 
         // Remove hall up orders if moving up, stopped or at bottom floor
-        if hall_up_at_current_floor && (current_direction == Up || is_bottom_floor) {
+        if hall_up_at_current_floor && (current_direction == Up || is_bottom_floor || current_behaviour == Idle) {
             orders_completed = true;
 
             // Update the state and send it to the coordinator
@@ -404,38 +409,13 @@ impl ElevatorFSM {
         }
 
         // Remove hall down orders if moving down, stopped or at top floor
-        if hall_down_at_current_floor && (current_direction == Down || is_top_floor) {
+        if hall_down_at_current_floor && (current_direction == Down || is_top_floor || current_behaviour == Idle) {
             orders_completed = true;
 
             // Update the state and send it to the coordinator
             self.hall_requests[current_floor as usize][HALL_DOWN as usize] = false;
             self.fsm_order_complete_tx
                 .send((current_floor, HALL_DOWN))
-                .unwrap();
-        }
-
-        // Check if next direction is affected by completed orders
-        next_direction = self.choose_direction();
-
-        // Remove hall down if that's the next direction, or if the elevator is stopped
-        if hall_down_at_current_floor && (next_direction == Down || next_direction == Stop) {
-            orders_completed = true;
-
-            // Update the state and send it to the coordinator
-            self.hall_requests[current_floor as usize][HALL_DOWN as usize] = false;
-            self.fsm_order_complete_tx
-                .send((current_floor, HALL_DOWN))
-                .unwrap();
-        }
-
-        // Remove hall up if that's the next direction, or if the elevator is stopped
-        if hall_up_at_current_floor && (next_direction == Up || next_direction == Stop) {
-            orders_completed = true;
-
-            // Update the state and send it to the coordinator
-            self.hall_requests[current_floor as usize][HALL_UP as usize] = false;
-            self.fsm_order_complete_tx
-                .send((current_floor, HALL_UP))
                 .unwrap();
         }
 
