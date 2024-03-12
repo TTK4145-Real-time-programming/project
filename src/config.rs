@@ -21,6 +21,8 @@ pub struct NetworkConfig {
     pub peer_port: u16,
     pub max_retries: u32,
     pub ack_timeout: u64,
+    pub max_attempts_id_generation: u32,
+    pub delay_between_attempts_id_generation: u64,
 }
 
 #[derive(Deserialize, Clone)]
