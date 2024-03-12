@@ -131,7 +131,7 @@ impl ElevatorFSM {
             cbc::select! {
                 recv(self.hw_floor_sensor_rx) -> floor => {
                     match floor {
-                        Ok(f) => self.handle_event(Event::FloorReached(f)),
+                        Ok(f) => self.handle_floor_hit(f),
                         Err(e) => {
                             error!("ERROR - hw_floor_sensor_rx: {}", e);
                             std::process::exit(1);
@@ -163,7 +163,7 @@ impl ElevatorFSM {
                 }
                 recv(self.hw_stop_button_rx) -> stop_button => {
                     match stop_button {
-                        Ok(true) => self.handle_event(Event::StopPressed),
+                        Ok(true) => (),
                         Ok(false) => (),
                         Err(e) => {
                             error!("ERROR - hw_stop_button_rx: {}", e);
@@ -210,40 +210,33 @@ impl ElevatorFSM {
         }
     }
 
-    fn handle_event(&mut self, event: Event) {
-        match event {
-            Event::FloorReached(floor) => {
-                self.state.floor = floor;
+    fn handle_floor_hit(&mut self, floor: u8) {
+        self.state.floor = floor;
 
-                // If orders at this floor, complete them and open the door
-                if self.complete_orders() {
-                    self.open_door();
-                }
+        // If orders at this floor, complete them and open the door
+        if self.complete_orders() {
+            self.open_door();
+        }
 
-                // No orders at this floor, find next direction
-                else {
-                    self.state.direction = self.choose_direction();
+        // No orders at this floor, find next direction
+        else {
+            self.state.direction = self.choose_direction();
 
-                    if self.state.direction == Stop {
-                        self.state.behaviour = Idle;
-                        let _ = self
-                            .hw_motor_direction_tx
-                            .send(self.state.direction.to_u8());
-                    } else {
-                        self.state.behaviour = Moving;
-                        let _ = self
-                            .hw_motor_direction_tx
-                            .send(self.state.direction.to_u8());
-                    }
-                }
-
-                // Send new state to coordinator
-                let _ = self.fsm_state_tx.send(self.state.clone());
-            }
-            Event::StopPressed => {
-                // TBA ;)
+            if self.state.direction == Stop {
+                self.state.behaviour = Idle;
+                let _ = self
+                    .hw_motor_direction_tx
+                    .send(self.state.direction.to_u8());
+            } else {
+                self.state.behaviour = Moving;
+                let _ = self
+                    .hw_motor_direction_tx
+                    .send(self.state.direction.to_u8());
             }
         }
+
+        // Send new state to coordinator
+        let _ = self.fsm_state_tx.send(self.state.clone());
     }
 
     fn choose_direction(&self) -> Direction {
@@ -506,8 +499,5 @@ pub mod testing {
             self.close_door()
         }
         
-        pub fn test_handle_event(&mut self, event: super::Event) {
-            self.handle_event(event)
-        }
     }
 }
