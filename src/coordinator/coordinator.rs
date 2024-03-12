@@ -320,9 +320,12 @@ impl Coordinator {
 
     // Calcualting hall requests
     fn hall_request_assigner(&mut self, transmit: bool) {
-
+        //Removing elevators in error state
+        let mut elevator_data = self.elevator_data.clone();
+        self.remove_error_states(&mut elevator_data.states);
+        
         // Serialize data
-        let mut json_value: serde_json::Value = serde_json::to_value(&self.elevator_data)
+        let mut json_value: serde_json::Value = serde_json::to_value(&elevator_data)
             .expect("Failed to serialize data");
 
         // Remove the `version` field from the serialized data
@@ -387,6 +390,11 @@ impl Coordinator {
         else {
             MergeType::Reject
         }
+    }
+
+    //Removes elevators in error state 
+    fn remove_error_states(&self, states: &mut HashMap<String, ElevatorState>) {
+        states.retain(|_, state| state.behaviour != Behaviour::Error);
     }
 }
 

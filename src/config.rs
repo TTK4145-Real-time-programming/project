@@ -46,3 +46,4 @@ pub fn load_config() -> Config {
     let config_str = fs::read_to_string("config.toml").expect("Failed to read configuration file");
     toml::from_str(&config_str).expect("Failed to parse configuration file")
 }
+

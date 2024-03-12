@@ -47,13 +47,13 @@ mod fsm_tests {
         let (fsm_order_complete_tx, fsm_order_complete_rx) = unbounded::<(u8, u8)>();
         let (fsm_state_tx, fsm_state_rx) = unbounded::<ElevatorState>();
         let (fsm_terminate_tx, fsm_terminate_rx) = unbounded::<()>();
-        let (net_peer_tx_enable_tx, net_peer_tx_enable_rx) = unbounded::<bool>();
 
         // Default configuration
         let config = ElevatorConfig { 
             n_floors: 4,
             door_open_time: 3000,
-            motor_driving_timeout: 10000
+            motor_driving_timeout: 10000,
+            door_timeout: 20000,
         };
 
         // Create the FSM and return it with the channels
@@ -69,7 +69,6 @@ mod fsm_tests {
             fsm_order_complete_tx,
             fsm_state_tx,
             fsm_terminate_rx,
-            net_peer_tx_enable_tx,
         ),
         hw_motor_direction_rx,
         hw_floor_sensor_tx,
