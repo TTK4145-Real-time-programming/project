@@ -94,7 +94,7 @@ fn main() -> std::io::Result<()> {
     let (net_data_send_tx, net_data_send_rx) = cbc::unbounded::<ElevatorData>();
     let (net_data_recv_tx, net_data_recv_rx) = cbc::unbounded::<ElevatorData>();
     let (net_peer_update_tx, net_peer_update_rx) = cbc::unbounded::<udpnet::peers::PeerUpdate>();
-    let (_net_peer_tx_enable_tx, net_peer_tx_enable_rx) = cbc::unbounded::<bool>();
+    let (net_peer_tx_enable_tx, net_peer_tx_enable_rx) = cbc::unbounded::<bool>();
 
     // Hardware channels
     let (hw_motor_direction_tx, hw_motor_direction_rx) = cbc::unbounded::<u8>();
@@ -131,7 +131,7 @@ fn main() -> std::io::Result<()> {
         net_peer_update_tx,
         net_peer_tx_enable_rx,
     )?;
-    let _id = network.id.clone();
+    let id = network.id.clone();
 
     // Start the fsm module
     let elevator_fsm = ElevatorFSM::new(
@@ -146,7 +146,7 @@ fn main() -> std::io::Result<()> {
         fsm_order_complete_tx,
         fsm_state_tx,
         fsm_terminate_rx,
-        _net_peer_tx_enable_tx,
+        net_peer_tx_enable_tx,
     );
 
     let elevator_fsm_thread = Builder::new().name("elevator_fsm".into());
@@ -155,17 +155,19 @@ fn main() -> std::io::Result<()> {
         .unwrap();
 
     // Create the elevator data instance
-    let _n_floors = config.hardware.n_floors.clone();
-    let mut _elevator_data = ElevatorData::new(_n_floors);
-    _elevator_data
+    let n_floors = config.hardware.n_floors.clone();
+    let mut elevator_data = ElevatorData::new(n_floors);
+    elevator_data
         .states
-        .insert(_id.clone(), ElevatorState::new(_n_floors));
+        .insert(id.clone(), ElevatorState::new(n_floors));
+
+    info!("Elevator data read from file {:?}", elevator_data);
 
     // Start the coordinator module
     let mut coordinator = Coordinator::new(
-        _elevator_data,
-        _id,
-        _n_floors,
+        elevator_data,
+        id,
+        n_floors,
         hw_button_light_tx,
         hw_request_rx,
         fsm_hall_requests_tx,

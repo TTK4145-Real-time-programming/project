@@ -36,11 +36,10 @@
 /***************************************/
 /*        3rd party libraries          */
 /***************************************/
-use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
+use driver_rust::elevio::elev::{HALL_UP, HALL_DOWN, CAB};
 use std::time::{Duration, Instant};
 use crossbeam_channel as cbc;
-use log::info;
-
+use log::{info, error};
 use std::thread::sleep;
 
 /***************************************/
@@ -50,14 +49,8 @@ use crate::config::ElevatorConfig;
 use crate::shared::Behaviour::{DoorOpen, Idle, Moving};
 use crate::shared::Direction::{Down, Stop, Up};
 use crate::shared::{Direction, ElevatorState};
+use crate::elevator::cab_orders::*;
 
-/***************************************/
-/*               Enums                 */
-/***************************************/
-enum Event {
-    FloorReached(u8),
-    StopPressed,
-}
 
 /***************************************/
 /*             Public API              */
@@ -77,7 +70,7 @@ pub struct ElevatorFSM {
     fsm_state_tx: cbc::Sender<ElevatorState>,
 
     //Network channels
-    _net_peer_tx_enable_tx: cbc::Sender<bool>,
+    net_peer_tx_enable_tx: cbc::Sender<bool>,
 
     // Private fields
     fsm_terminate_rx: cbc::Receiver<()>,
@@ -85,10 +78,9 @@ pub struct ElevatorFSM {
     state: ElevatorState,
     n_floors: u8,
     obstruction: bool,
-    started_moving: bool,
     peer_enable: bool,
     door_open_time: u64,
-    motor_driving_time: u64,
+    motor_driving_timeout: u64,
     door_timer: Instant,
     motor_timer: Instant,
 }
@@ -109,7 +101,7 @@ impl ElevatorFSM {
         fsm_state_tx: cbc::Sender<ElevatorState>,
         fsm_terminate_rx: cbc::Receiver<()>,
         
-        _net_peer_tx_enable_tx: cbc::Sender<bool>,
+        net_peer_tx_enable_tx: cbc::Sender<bool>,
     ) -> ElevatorFSM {
         ElevatorFSM {
             hw_motor_direction_tx,
@@ -124,16 +116,15 @@ impl ElevatorFSM {
             fsm_state_tx,
             fsm_terminate_rx,
 
-            _net_peer_tx_enable_tx,
+            net_peer_tx_enable_tx,
             
             hall_requests: vec![vec![false; 2]; config.n_floors as usize],
             state: ElevatorState::new(config.n_floors),
             n_floors: config.n_floors,
             obstruction: false,
-            started_moving: false,
             peer_enable: true,
             door_open_time: config.door_open_time,
-            motor_driving_time: config.motor_driving_time,
+            motor_driving_timeout: config.motor_driving_timeout,
             door_timer: Instant::now(),
             motor_timer: Instant::now(),
         }
@@ -141,16 +132,17 @@ impl ElevatorFSM {
 
     pub fn run(mut self) {
         // Find the initial floor
-        let _ = self.hw_motor_direction_tx.send(DIRN_DOWN);
+        let _ = self.hw_motor_direction_tx.send(Direction::Down.to_u8());
+        self.load_saved_cab_calls();
 
         // Main loop
         loop {
             cbc::select! {
                 recv(self.hw_floor_sensor_rx) -> floor => {
                     match floor {
-                        Ok(f) => self.handle_event(Event::FloorReached(f)),
+                        Ok(f) => self.handle_floor_hit(f),
                         Err(e) => {
-                            eprintln!("ERROR - hw_floor_sensor_rx: {}", e);
+                            error!("ERROR - hw_floor_sensor_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -161,7 +153,7 @@ impl ElevatorFSM {
                             self.hall_requests = hall_requests;
                         }
                         Err(e) => {
-                            eprintln!("ERROR - fsm_hall_requests_rx: {}", e);
+                            error!("ERROR - fsm_hall_requests_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -170,20 +162,21 @@ impl ElevatorFSM {
                     match request {
                         Ok(request) => {
                             self.state.cab_requests[request as usize] = true;
+                            save_cab_orders(self.state.cab_requests.clone());
                             let _ = self.fsm_state_tx.send(self.state.clone());
                         }
                         Err(e) => {
-                            eprintln!("ERROR - fsm_cab_request_rx: {}", e);
+                            error!("ERROR - fsm_cab_request_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
                 }
                 recv(self.hw_stop_button_rx) -> stop_button => {
                     match stop_button {
-                        Ok(true) => self.handle_event(Event::StopPressed),
+                        Ok(true) => (),
                         Ok(false) => (),
                         Err(e) => {
-                            eprintln!("ERROR - hw_stop_button_rx: {}", e);
+                            error!("ERROR - hw_stop_button_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -192,7 +185,7 @@ impl ElevatorFSM {
                     match obstruction {
                         Ok(value) => self.obstruction = value,
                         Err(e) => {
-                            eprintln!("ERROR - hw_obstruction_rx: {}", e);
+                            error!("ERROR - hw_obstruction_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -211,32 +204,39 @@ impl ElevatorFSM {
                             if self.state.direction != Stop {
                                 self.state.behaviour = Moving;
                                 let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+                                self.reset_motor_timer();
                             }
                         }
                         DoorOpen => {
                             if self.obstruction {
-                                self.door_timer = Instant::now() + Duration::from_millis(self.door_open_time);
+                                self.reset_door_timer();
                             } else if self.door_timer <= Instant::now() {
                                 self.close_door();
+                                self.complete_orders();
+
+                                self.state.direction = self.choose_direction();
+                                let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+                                if self.state.direction == Stop {
+                                    self.state.behaviour = Idle;
+                                }
+                                else {
+                                    self.state.behaviour = Moving;
+                                    self.reset_motor_timer();
+                                }
+                                let _ = self.fsm_state_tx.send(self.state.clone());
                             }
                         }
                         Moving => {
-                            if !self.started_moving {
-                                self.motor_timer = Instant::now() + Duration::from_millis(self.motor_driving_time);
-                                self.started_moving = true;
-                            }
-
-                            if self.motor_timer <= Instant::now() && self.started_moving {
+                            if self.motor_timer <= Instant::now() {
                                 info!("Motor Loss elevator!");
                                 
-                                //Making elevator unavalible for network
+                                // Disconnecting elevator from network
                                 if self.peer_enable {
-                                    let _ = self._net_peer_tx_enable_tx.send(false);
+                                    let _ = self.net_peer_tx_enable_tx.send(false);
                                     self.peer_enable = false;
                                 }
 
                                 //Trying to start up motor
-                                self.started_moving = false;
                                 let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
                             }
                         }
@@ -246,50 +246,42 @@ impl ElevatorFSM {
         }
     }
 
-    fn handle_event(&mut self, event: Event) {
-        match event {
-            Event::FloorReached(floor) => {
-                //Resting timer for drive time between floors
-                if self.started_moving && !self.peer_enable{
-                    let _ = self._net_peer_tx_enable_tx.send(true);
-                    self.peer_enable = true;
-                    self.started_moving = false;
-                    info!("Motor power restored. Elavtor back in normal state.");
+    fn handle_floor_hit(&mut self, floor: u8) {
+        //Resting timer for drive time between floors
+        if self.state.behaviour == Moving && !self.peer_enable{
+            let _ = self.net_peer_tx_enable_tx.send(true);
+            self.peer_enable = true;
+            info!("Motor power restored. Elavtor back in normal state.");
 
-                    sleep(Duration::from_millis(100));
-                }
+            sleep(Duration::from_millis(100));
+        }
 
-                self.state.floor = floor;
+        self.state.floor = floor;
 
-                // If orders at this floor, complete them and open the door
-                if self.complete_orders() {
-                    self.open_door();
-                }
+        // If orders at this floor, complete them, stop and open the door
+        if self.complete_orders() {
+            let _ = self.hw_motor_direction_tx.send(Direction::Stop.to_u8());
+            self.open_door();
+        }
 
-                // No orders at this floor, find next direction
-                else {
-                    self.state.direction = self.choose_direction();
+        // No orders at this floor, find next direction
+        else {
+            self.state.direction = self.choose_direction();
 
-                    if self.state.direction == Stop {
-                        self.state.behaviour = Idle;
-                        let _ = self
-                            .hw_motor_direction_tx
-                            .send(self.state.direction.to_u8());
-                    } else {
-                        self.state.behaviour = Moving;
-                        let _ = self
-                            .hw_motor_direction_tx
-                            .send(self.state.direction.to_u8());
-                    }
-                }
-
-                // Send new state to coordinator
-                let _ = self.fsm_state_tx.send(self.state.clone());
-            }
-            Event::StopPressed => {
-                // TBA ;)
+            if self.state.direction == Stop {
+                self.state.behaviour = Idle;
+                let _ = self
+                    .hw_motor_direction_tx
+                    .send(self.state.direction.to_u8());
+            } else {
+                self.state.behaviour = Moving;
+                let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+                self.reset_motor_timer();
             }
         }
+
+        // Send new state to coordinator
+        let _ = self.fsm_state_tx.send(self.state.clone());
     }
 
     fn choose_direction(&self) -> Direction {
@@ -356,6 +348,14 @@ impl ElevatorFSM {
         false
     }
 
+    fn reset_motor_timer(&mut self) {
+        self.motor_timer = Instant::now() + Duration::from_millis(self.motor_driving_timeout);
+    }
+
+    fn reset_door_timer(&mut self) {
+        self.door_timer = Instant::now() + Duration::from_millis(self.door_open_time);
+    }
+
     // Returns true if order has been completed
     fn complete_orders(&mut self) -> bool {
 
@@ -377,12 +377,15 @@ impl ElevatorFSM {
         // Remove cab orders at current floor.
         if cab_at_current_floor {
             orders_completed = true;
-
+            
             // Update the state and send it to the coordinator
             self.state.cab_requests[current_floor as usize] = false;
             self.fsm_order_complete_tx
-                .send((current_floor, CAB))
-                .unwrap();
+            .send((current_floor, CAB))
+            .unwrap();
+
+            //Saving to cab order change to file
+            save_cab_orders(self.state.cab_requests.clone());
         }
 
         // Remove hall up orders if moving up, stopped or at bottom floor
@@ -440,74 +443,24 @@ impl ElevatorFSM {
     */
     fn open_door(&mut self) {
         let _ = self.hw_door_light_tx.send(true);
-        let _ = self.hw_motor_direction_tx.send(DIRN_STOP); // Don't like having this here
-        self.door_timer = Instant::now() + Duration::from_millis(self.door_open_time);
+        self.reset_door_timer();
         self.state.behaviour = DoorOpen;
         let _ = self.fsm_state_tx.send(self.state.clone());
     }
 
     fn close_door(&mut self) {
-        self.complete_orders();
         let _ = self.hw_door_light_tx.send(false);
-        self.state.direction = self.choose_direction();
-        let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
-        if self.state.direction == Stop {
-            self.state.behaviour = Idle;
-        }
-        else {
-            self.state.behaviour = Moving;
-        }
+    }
+
+    // Handles saved cab calls 
+    fn load_saved_cab_calls(&mut self) {
+        //Setting cab orders from file to elevatorData
+        self.state.cab_requests = load_cab_orders().cab_calls;
+        
+        // Updating coordinator with the init state
         let _ = self.fsm_state_tx.send(self.state.clone());
     }
 
-    fn log_orders(&self) {
-        info!("CAB: {:?}", self.state.cab_requests);
-        info!("HALL: {:?}", self.hall_requests);
-    }
-
-
-
-    // --------- Unused methods --------- //
-
-    fn _should_stop(&self) -> bool {
-        match self.state.direction {
-            Up => {
-                // Check for order at current floor
-                if self.state.cab_requests[self.state.floor as usize]
-                    || self.hall_requests[self.state.floor as usize][HALL_UP as usize]
-                    || self.hall_requests[self.state.floor as usize][HALL_DOWN as usize]
-                {
-                    return true;
-                }
-
-                // Check if top floor is reached
-                if self.state.floor == self.n_floors - 1 {
-                    return false;
-                }
-
-                // Check for orders above current floor
-                self.has_orders_in_direction(Up)
-            }
-            Down => {
-                // Check for order at current floor
-                if self.state.cab_requests[self.state.floor as usize]
-                    || self.hall_requests[self.state.floor as usize][HALL_UP as usize]
-                    || self.hall_requests[self.state.floor as usize][HALL_DOWN as usize]
-                {
-                    return true;
-                }
-
-                // Check if bottom floor is reached
-                if self.state.floor == 0 {
-                    return false;
-                }
-
-                // Check for orders below current floor
-                self.has_orders_in_direction(Down)
-            }
-            Stop => true,
-        }
-    }
 }
 
 /***************************************/
@@ -552,8 +505,5 @@ pub mod testing {
             self.close_door()
         }
         
-        pub fn test_handle_event(&mut self, event: super::Event) {
-            self.handle_event(event)
-        }
     }
 }

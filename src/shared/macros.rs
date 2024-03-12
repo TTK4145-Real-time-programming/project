@@ -7,7 +7,7 @@ macro_rules! unwrap_or_exit {
         match $expr {
             Ok(val) => val,
             Err(e) => {
-                eprintln!("ERROR: {}", e);
+                error!("ERROR: {}", e);
                 std::process::exit(1);
             }
         }

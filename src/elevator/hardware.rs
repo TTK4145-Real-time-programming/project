@@ -31,6 +31,7 @@ use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
 use driver_rust::elevio::elev::Elevator;
 use crossbeam_channel as cbc;
 use std::time::Duration;
+use log::error;
 
 /***************************************/
 /*           Local modules             */
@@ -109,7 +110,7 @@ impl ElevatorDriver {
                     match self.hw_floor_sensor_tx.send(floor) {
                         Ok(_) => {}
                         Err(e) => {
-                            eprintln!("ERROR - hw_floor_sensor_tx: {}", e);
+                            error!("ERROR - hw_floor_sensor_tx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -155,7 +156,7 @@ impl ElevatorDriver {
                     match msg {
                         Ok(msg) => self.elevator.motor_direction(msg),
                         Err(e) => {
-                            eprintln!("ERROR - hw_motor_direction_rx: {}", e);
+                            error!("ERROR - hw_motor_direction_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -167,7 +168,7 @@ impl ElevatorDriver {
                             self.requests[msg.0 as usize][msg.1 as usize] = msg.2; // Make new calls possible
                         }
                         Err(e) => {
-                            eprintln!("ERROR - hw_button_light_rx: {}", e);
+                            error!("ERROR - hw_button_light_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -176,7 +177,7 @@ impl ElevatorDriver {
                     match msg {
                         Ok(msg) => self.elevator.door_light(msg),
                         Err(e) => {
-                            eprintln!("ERROR - hw_door_light_rx: {}", e);
+                            error!("ERROR - hw_door_light_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
