@@ -101,6 +101,7 @@ fn main() -> std::io::Result<()> {
     let (hw_button_light_tx, hw_button_light_rx) = cbc::unbounded::<(u8, u8, bool)>();
     let (hw_request_tx, hw_request_rx) = cbc::unbounded::<(u8, u8)>();
     let (hw_floor_sensor_tx, hw_floor_sensor_rx) = cbc::unbounded::<u8>();
+    let (hw_floor_indicator_tx, hw_floor_indicator_rx) = cbc::unbounded::<u8>();
     let (hw_door_light_tx, hw_door_light_rx) = cbc::unbounded::<bool>();
     let (hw_obstruction_tx, hw_obstruction_rx) = cbc::unbounded::<bool>();
     let (hw_stop_button_tx, hw_stop_button_rx) = cbc::unbounded::<bool>();
@@ -112,6 +113,7 @@ fn main() -> std::io::Result<()> {
         hw_button_light_rx,
         hw_request_tx,
         hw_floor_sensor_tx,
+        hw_floor_indicator_rx,
         hw_door_light_rx,
         hw_obstruction_tx,
         hw_stop_button_tx,
@@ -138,6 +140,7 @@ fn main() -> std::io::Result<()> {
         &config.elevator,
         hw_motor_direction_tx,
         hw_floor_sensor_rx,
+        hw_floor_indicator_tx,
         hw_door_light_tx,
         hw_obstruction_rx,
         hw_stop_button_rx,

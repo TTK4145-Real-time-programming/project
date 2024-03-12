@@ -166,36 +166,6 @@ mod coordinator_tests {
     }
 
     #[test]
-    fn test_coordinator_check_version() {
-        // Arrange
-        let (
-            mut coordinator,
-            _hw_button_light_rx,
-            _hw_request_tx,
-            _fsm_hall_requests_rx,
-            _fsm_cab_request_rx,
-            _fsm_state_tx,
-            _fsm_order_complete_tx,
-            _net_data_send_rx,
-            _net_data_recv_tx,
-            _net_peer_update_tx,
-            _coordinator_terminate_tx
-        ) = setup_coordinator();
-
-        // Act
-        coordinator.test_set_version(2);
-        let merge_type1 = coordinator.test_check_version(1);
-        let merge_type2 = coordinator.test_check_version(2);
-        let merge_type3 = coordinator.test_check_version(3);
-
-        // Assert
-        assert_eq!(merge_type1, MergeType::Reject);
-        assert_eq!(merge_type2, MergeType::Conflict);
-        assert_eq!(merge_type3, MergeType::Accept);
-        
-    }
-
-    #[test]
     fn test_coordinator_hall_request_assigner() {
         // Arrange
         let (

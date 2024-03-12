@@ -26,7 +26,7 @@ pub enum Event {
 
 #[derive(PartialEq, Debug)]
 pub enum MergeType {
-    Conflict,
+    Merge,
     Accept,
     Reject,
 }
@@ -171,7 +171,7 @@ impl Coordinator {
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::NewPackage(elevator_data) => {
-                let merge_type = self.check_version(elevator_data.version);
+                let merge_type = self.check_merge_type(elevator_data.clone());
 
                 match merge_type {
                     MergeType::Accept => {
@@ -206,8 +206,24 @@ impl Coordinator {
 
                         self.hall_request_assigner(false);
                     }
-                    MergeType::Conflict => {
-                        // TODO: merge conflict
+                    MergeType::Merge => {
+                        // Hall requests should be "OR"ed
+                        for floor in 0..self.n_floors {
+                            self.elevator_data.hall_requests[floor as usize][HALL_DOWN as usize] =
+                                self.elevator_data.hall_requests[floor as usize][HALL_DOWN as usize]
+                                    || elevator_data.hall_requests[floor as usize][HALL_DOWN as usize];
+                            self.elevator_data.hall_requests[floor as usize][HALL_UP as usize] =
+                                self.elevator_data.hall_requests[floor as usize][HALL_UP as usize]
+                                    || elevator_data.hall_requests[floor as usize][HALL_UP as usize];
+                        }
+
+                        // Incoming states should overwrite existing states, but not the local state
+                        for (id, state) in elevator_data.states.iter() {
+                            if id != &self.local_id {
+                                self.elevator_data.states.insert(id.clone(), state.clone());
+                            }
+                        }
+                        
                     }
                     MergeType::Reject => {
                         // TODO: reject merge
@@ -323,6 +339,18 @@ impl Coordinator {
         //Removing elevators in error state
         let mut elevator_data = self.elevator_data.clone();
         self.remove_error_states(&mut elevator_data.states);
+
+        if elevator_data.states.is_empty() {
+            // Only transmit hall requests to FSM
+            self.fsm_hall_requests_tx.send(elevator_data.hall_requests).expect("Failed to send hall requests to fsm");
+            if transmit {
+                self.elevator_data.version += 1;
+                self.net_data_send_tx
+                    .send(self.elevator_data.clone())
+                    .expect("Failed to send elevator data to network thread");
+            }
+            return;
+        }
         
         // Serialize data
         let mut json_value: serde_json::Value = serde_json::to_value(&elevator_data)
@@ -377,15 +405,18 @@ impl Coordinator {
         }
     }
 
-    // Checks if incomming version is newer than local version
-    fn check_version(&self, version: u64) -> MergeType {
-        if version > self.elevator_data.version {
+    fn check_merge_type(&self, elevator_data: ElevatorData) -> MergeType {
+        let new_elevators = elevator_data.states.keys().len() > self.elevator_data.states.keys().len();
+        let version = elevator_data.version;
+
+        // New elevators in data should yield a merge
+        if new_elevators {
+            MergeType::Merge
+        }
+        
+        else if version > self.elevator_data.version {
             MergeType::Accept
         } 
-        
-        else if version == self.elevator_data.version {
-            MergeType::Conflict
-        }
 
         else {
             MergeType::Reject
@@ -426,8 +457,8 @@ pub mod testing {
             self.update_lights(light);
         }
 
-        pub fn test_check_version(&self, version: u64) -> super::MergeType {
-            self.check_version(version)
+        pub fn test_check_merge_type(&self, elevator_data: ElevatorData) -> super::MergeType {
+            self.check_merge_type(elevator_data)
         }
 
         pub fn test_set_version(&mut self, version: u64) {

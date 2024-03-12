@@ -27,7 +27,7 @@
 use crossbeam_channel as cbc;
 use network_rust::udpnet;
 use std::net::UdpSocket;
-use std::thread::Builder;
+use std::thread::{Builder, sleep};
 use std::time::{Duration, Instant};
 use std::process;
 use std::net;
@@ -60,12 +60,20 @@ impl Network {
         let ack_timeout = config.ack_timeout;
         let max_retries = config.max_retries;
 
-        let local_ip = net::TcpStream::connect(config.id_gen_address.clone())
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .ip();
-        let id = format!("{}:{}", local_ip, msg_port.clone());
+        let local_ip_result = find_local_ip(
+            config.id_gen_address.clone(),
+            config.max_attempts_id_generation,
+            Duration::from_millis(config.delay_between_attempts_id_generation),
+        );
+
+        let id = match local_ip_result {
+            Some(ip) => format!("{}:{}", ip, msg_port.clone()),
+            None => {
+                error!("Failed to generate ID, elevator is offline, running single elevator mode");
+                return Ok(Network { id: "Offline Elevator".to_string() });
+            }
+        };
+
         info!("ID: {}", id);
         let id_tx = id.clone();
 
@@ -239,4 +247,22 @@ fn recv_ack(socket: &UdpSocket) -> Option<ElevatorData> {
             None
         },
     }
+}
+
+fn find_local_ip(address: String, max_attempts: u32, delay_between_attempts: Duration) -> Option<std::net::IpAddr> {
+    let mut attempts = 0;
+    while attempts < max_attempts {
+        match net::TcpStream::connect(address.clone()) {
+            Ok(stream) => match stream.local_addr() {
+                Ok(addr) => return Some(addr.ip()),
+                Err(e) => error!("Failed to get local address: {}", e),
+            },
+            Err(e) => {
+                error!("Attempt {} to generate ID failed: {}", attempts + 1, e);
+                sleep(delay_between_attempts);
+            },
+        }
+        attempts += 1;
+    }
+    None
 }

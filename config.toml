@@ -4,6 +4,9 @@ msg_port = 19735
 peer_port = 19738
 max_retries = 3
 ack_timeout = 4000
+max_attempts_id_generation = 5
+delay_between_attempts_id_generation = 1000
+
 
 [elevator]
 n_floors = 4

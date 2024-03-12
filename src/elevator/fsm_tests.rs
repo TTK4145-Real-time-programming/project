@@ -27,6 +27,7 @@ mod fsm_tests {
     fn setup_fsm() -> (ElevatorFSM,
         crossbeam_channel::Receiver<u8>,
         crossbeam_channel::Sender<u8>,
+        crossbeam_channel::Receiver<u8>,
         crossbeam_channel::Receiver<bool>,
         crossbeam_channel::Sender<bool>,
         crossbeam_channel::Sender<bool>,
@@ -39,6 +40,7 @@ mod fsm_tests {
         // Arrange mock channels
         let (hw_motor_direction_tx, hw_motor_direction_rx) = unbounded::<u8>();
         let (hw_floor_sensor_tx, hw_floor_sensor_rx) = unbounded::<u8>();
+        let (hw_floor_indicator_tx, _hw_floor_indicator_rx) = unbounded::<u8>();
         let (hw_door_light_tx, hw_door_light_rx) = unbounded::<bool>();
         let (hw_obstruction_tx, hw_obstruction_rx) = unbounded::<bool>();
         let (hw_stop_button_tx, hw_stop_button_rx) = unbounded::<bool>();
@@ -61,6 +63,7 @@ mod fsm_tests {
             &config,
             hw_motor_direction_tx,
             hw_floor_sensor_rx,
+            hw_floor_indicator_tx,
             hw_door_light_tx,
             hw_obstruction_rx,
             hw_stop_button_rx,
@@ -72,6 +75,7 @@ mod fsm_tests {
         ),
         hw_motor_direction_rx,
         hw_floor_sensor_tx,
+        _hw_floor_indicator_rx,
         hw_door_light_rx,
         hw_obstruction_tx,
         hw_stop_button_tx,
@@ -90,6 +94,7 @@ mod fsm_tests {
         let (fsm,
             _hw_motor_direction_rx,
             hw_floor_sensor_tx,
+            _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
             _hw_stop_button_tx,
@@ -146,6 +151,7 @@ mod fsm_tests {
         let (fsm,
             _hw_motor_direction_rx,
             hw_floor_sensor_tx,
+            _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
             _hw_stop_button_tx,
@@ -201,6 +207,7 @@ mod fsm_tests {
         let (mut fsm,
             _hw_motor_direction_rx,
             _hw_floor_sensor_tx,
+            _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
             _hw_stop_button_tx,
@@ -263,6 +270,7 @@ mod fsm_tests {
         let (mut fsm,
             _hw_motor_direction_rx,
             _hw_floor_sensor_tx,
+            _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
             _hw_stop_button_tx,
@@ -329,6 +337,7 @@ mod fsm_tests {
         let (mut fsm,
             _hw_motor_direction_rx,
             _hw_floor_sensor_tx,
+            _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
             _hw_stop_button_tx,
@@ -405,6 +414,7 @@ mod fsm_tests {
         let (mut fsm,
             _hw_motor_direction_rx,
             _hw_floor_sensor_tx,
+            _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
             _hw_stop_button_tx,
@@ -432,6 +442,7 @@ mod fsm_tests {
         let (mut fsm,
             _hw_motor_direction_rx,
             _hw_floor_sensor_tx,
+            _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
             _hw_stop_button_tx,
