@@ -100,15 +100,28 @@ mod fsm_tests {
         let fsm_thread = spawn(move || fsm.run());
 
         // Act
+        match fsm_state_rx.recv_timeout(std::time::Duration::from_secs(3)) {
+            Ok(state) => {
+                //Disregarding 
+            },
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                panic!("Timed out waiting for fsm_state_rx");
+            },
+            Err(e) => {
+                panic!("Error receiving from fsm_state_rx: {:?}", e);
+            }
+        }
+        
         // Simulate the elevator hitting floor 0 after creation
-        hw_floor_sensor_tx.send(0).unwrap();
+        hw_floor_sensor_tx.send(1).unwrap();
 
         // Assert
+
         match fsm_state_rx.recv_timeout(std::time::Duration::from_secs(3)) {
             Ok(state) => {
                 assert_eq!(state.behaviour, Idle);
                 assert_eq!(state.direction, Stop);
-                assert_eq!(state.floor, 0);
+                assert_eq!(state.floor, 1);
             },
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                 panic!("Timed out waiting for fsm_state_rx");
@@ -147,6 +160,18 @@ mod fsm_tests {
         hw_floor_sensor_tx.send(1).unwrap();
 
         // Assert
+        match fsm_state_rx.recv_timeout(std::time::Duration::from_secs(3)) {
+            Ok(state) => {
+                //Disregarding first update as this is part of init 
+            },
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                panic!("Timed out waiting for fsm_state_rx");
+            },
+            Err(e) => {
+                panic!("Error receiving from fsm_state_rx: {:?}", e);
+            }
+        }
+
         match fsm_state_rx.recv_timeout(std::time::Duration::from_secs(3)) {
             Ok(state) => {
                 assert_eq!(state.behaviour, Idle);
