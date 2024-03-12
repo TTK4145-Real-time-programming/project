@@ -59,6 +59,7 @@ pub struct ElevatorFSM {
     // Hardware channels
     hw_motor_direction_tx: cbc::Sender<u8>,
     hw_floor_sensor_rx: cbc::Receiver<u8>,
+    hw_floor_indicator_tx: cbc::Sender<u8>,
     hw_door_light_tx: cbc::Sender<bool>,
     hw_obstruction_rx: cbc::Receiver<bool>,
     hw_stop_button_rx: cbc::Receiver<bool>,
@@ -91,6 +92,7 @@ impl ElevatorFSM {
 
         hw_motor_direction_tx: cbc::Sender<u8>,
         hw_floor_sensor_rx: cbc::Receiver<u8>,
+        hw_floor_indicator_tx: cbc::Sender<u8>,
         hw_door_light_tx: cbc::Sender<bool>,
         hw_obstruction_rx: cbc::Receiver<bool>,
         hw_stop_button_rx: cbc::Receiver<bool>,
@@ -106,6 +108,7 @@ impl ElevatorFSM {
         ElevatorFSM {
             hw_motor_direction_tx,
             hw_floor_sensor_rx,
+            hw_floor_indicator_tx,
             hw_door_light_tx,
             hw_obstruction_rx,
             hw_stop_button_rx,
@@ -257,6 +260,7 @@ impl ElevatorFSM {
         }
 
         self.state.floor = floor;
+        self.hw_floor_indicator_tx.send(floor).unwrap();
 
         // If orders at this floor, complete them, stop and open the door
         if self.complete_orders() {

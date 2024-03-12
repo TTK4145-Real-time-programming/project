@@ -57,6 +57,7 @@ pub struct ElevatorDriver {
     hw_button_light_rx: cbc::Receiver<(u8, u8, bool)>,
     hw_request_tx: cbc::Sender<(u8, u8)>,
     hw_floor_sensor_tx: cbc::Sender<u8>,
+    hw_floor_indicator_rx: cbc::Receiver<u8>,
     hw_door_light_rx: cbc::Receiver<bool>,
     hw_obstruction_tx: cbc::Sender<bool>,
     hw_stop_button_tx: cbc::Sender<bool>,
@@ -70,6 +71,7 @@ impl ElevatorDriver {
         hw_button_light_rx: cbc::Receiver<(u8, u8, bool)>,
         hw_request_tx: cbc::Sender<(u8, u8)>,
         hw_floor_sensor_tx: cbc::Sender<u8>,
+        hw_floor_indicator_rx: cbc::Receiver<u8>,
         hw_door_light_rx: cbc::Receiver<bool>,
         hw_obstruction_tx: cbc::Sender<bool>,
         hw_stop_button_tx: cbc::Sender<bool>,
@@ -85,6 +87,7 @@ impl ElevatorDriver {
             hw_button_light_rx,
             hw_request_tx,
             hw_floor_sensor_tx,
+            hw_floor_indicator_rx,
             hw_door_light_rx,
             hw_obstruction_tx,
             hw_stop_button_tx,
@@ -182,6 +185,15 @@ impl ElevatorDriver {
                         }
                     }
 
+                }
+                recv(self.hw_floor_indicator_rx) -> msg => {
+                    match msg {
+                        Ok(msg) => self.elevator.floor_indicator(msg),
+                        Err(e) => {
+                            error!("ERROR - hw_floor_indicator_rx: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
                 recv(self.terminate_rx) -> _ => {
                     break;
