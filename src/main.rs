@@ -94,7 +94,7 @@ fn main() -> std::io::Result<()> {
     let (net_data_send_tx, net_data_send_rx) = cbc::unbounded::<ElevatorData>();
     let (net_data_recv_tx, net_data_recv_rx) = cbc::unbounded::<ElevatorData>();
     let (net_peer_update_tx, net_peer_update_rx) = cbc::unbounded::<udpnet::peers::PeerUpdate>();
-    let (_net_peer_tx_enable_tx, net_peer_tx_enable_rx) = cbc::unbounded::<bool>();
+    let (net_peer_tx_enable_tx, net_peer_tx_enable_rx) = cbc::unbounded::<bool>();
 
     // Hardware channels
     let (hw_motor_direction_tx, hw_motor_direction_rx) = cbc::unbounded::<u8>();
@@ -146,6 +146,7 @@ fn main() -> std::io::Result<()> {
         fsm_order_complete_tx,
         fsm_state_tx,
         fsm_terminate_rx,
+        net_peer_tx_enable_tx,
     );
 
     let elevator_fsm_thread = Builder::new().name("elevator_fsm".into());
