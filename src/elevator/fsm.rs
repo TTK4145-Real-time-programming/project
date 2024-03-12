@@ -316,11 +316,24 @@ impl ElevatorFSM {
 
     // Returns true if order has been completed
     fn complete_orders(&mut self) -> bool {
+
+        // Floor specific variables
         let current_floor = self.state.floor;
+        let is_top_floor = current_floor == self.n_floors - 1;
+        let is_bottom_floor = current_floor == 0;
+
+        // Order specific variables
+        let cab_at_current_floor = self.state.cab_requests[current_floor as usize];
+        let hall_up_at_current_floor = self.hall_requests[current_floor as usize][HALL_UP as usize];
+        let hall_down_at_current_floor = self.hall_requests[current_floor as usize][HALL_DOWN as usize];
+
+        // State specific variables
+        let current_direction = self.state.direction.clone();
+        let mut next_direction = current_direction.clone();
         let mut orders_completed = false;
 
         // Remove cab orders at current floor.
-        if self.state.cab_requests[current_floor as usize] {
+        if cab_at_current_floor {
             orders_completed = true;
             
             // Update the state and send it to the coordinator
@@ -332,9 +345,9 @@ impl ElevatorFSM {
             //Saving to cab order change to file
             save_cab_orders(self.state.cab_requests.clone());
         }
-        // Remove hall up orders.
-        if self.hall_requests[current_floor as usize][HALL_UP as usize]
-        {
+
+        // Remove hall up orders if moving up, stopped or at bottom floor
+        if hall_up_at_current_floor && (current_direction == Up || is_bottom_floor) {
             orders_completed = true;
 
             // Update the state and send it to the coordinator
@@ -344,15 +357,39 @@ impl ElevatorFSM {
                 .unwrap();
         }
 
-        // Remove hall down orders.
-        if self.hall_requests[current_floor as usize][HALL_DOWN as usize]
-        {
+        // Remove hall down orders if moving down, stopped or at top floor
+        if hall_down_at_current_floor && (current_direction == Down || is_top_floor) {
             orders_completed = true;
 
             // Update the state and send it to the coordinator
             self.hall_requests[current_floor as usize][HALL_DOWN as usize] = false;
             self.fsm_order_complete_tx
                 .send((current_floor, HALL_DOWN))
+                .unwrap();
+        }
+
+        // Check if next direction is affected by completed orders
+        next_direction = self.choose_direction();
+
+        // Remove hall down if that's the next direction, or if the elevator is stopped
+        if hall_down_at_current_floor && (next_direction == Down || next_direction == Stop) {
+            orders_completed = true;
+
+            // Update the state and send it to the coordinator
+            self.hall_requests[current_floor as usize][HALL_DOWN as usize] = false;
+            self.fsm_order_complete_tx
+                .send((current_floor, HALL_DOWN))
+                .unwrap();
+        }
+
+        // Remove hall up if that's the next direction, or if the elevator is stopped
+        if hall_up_at_current_floor && (next_direction == Up || next_direction == Stop) {
+            orders_completed = true;
+
+            // Update the state and send it to the coordinator
+            self.hall_requests[current_floor as usize][HALL_UP as usize] = false;
+            self.fsm_order_complete_tx
+                .send((current_floor, HALL_UP))
                 .unwrap();
         }
 
