@@ -2,7 +2,7 @@
 /*        3rd party libraries          */
 /***************************************/
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
-use log::info;
+use log::{info, error};
 use network_rust::udpnet::peers::PeerUpdate;
 use std::{collections::HashMap, process::Command};
 use crossbeam_channel as cbc;
@@ -110,7 +110,7 @@ impl Coordinator {
                    match package {
                         Ok(elevator_data) => self.handle_event(Event::NewPackage(elevator_data)),
                         Err(e) => {
-                            eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
+                            error!("Error extracting network package in coordinator: {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -121,7 +121,7 @@ impl Coordinator {
                     match peer {
                         Ok(peer_update) => self.handle_event(Event::NewPeerUpdate(peer_update)),
                         Err(e) => {
-                            eprintln!("Error extracting peer update package in coordinator: {:?}\r\n", e);
+                            error!("Error extracting peer update package in coordinator: {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -132,7 +132,7 @@ impl Coordinator {
                     match request {
                         Ok(request) => self.handle_event(Event::RequestReceived(request)),
                         Err(e) => {
-                            eprintln!("Error extracting button package in coordinator: {:?}\r\n", e);
+                            error!("Error extracting button package in coordinator: {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -143,7 +143,7 @@ impl Coordinator {
                     match state {
                         Ok(state) => self.handle_event(Event::NewElevatorState(state)),
                         Err(e) => {
-                            eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
+                            error!("Error extracting network package in coordinator: {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -154,7 +154,7 @@ impl Coordinator {
                     match completed_order {
                         Ok(finish_order) => self.handle_event(Event::OrderComplete(finish_order)),
                         Err(e) => {
-                            eprintln!("Error extracting completed order from fsm in coordinator: {:?}\r\n", e);
+                            error!("Error extracting completed order from fsm in coordinator: {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -318,7 +318,7 @@ impl Coordinator {
     fn update_lights(&self, light: (u8, u8, bool)) {
         //Sending change in lights
         if let Err(e) = self.hw_button_light_tx.send(light) {
-            eprintln!(
+            error!(
                 "Failed to send light command to light thread from coordinator: {:?}",
                 e
             );
@@ -369,7 +369,7 @@ impl Coordinator {
         else {
             // If the executable did not run successfully, you can handle the error
             let error_message = String::from_utf8(hra_output.stderr).expect("Invalid UTF-8 error hra_output");
-            eprintln!("Error executing hall_request_assigner: {:?}", error_message);
+            error!("Error executing hall_request_assigner: {:?}", error_message);
             std::process::exit(1);
         }
 

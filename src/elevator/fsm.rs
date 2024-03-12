@@ -39,7 +39,7 @@
 use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
 use std::time::{Duration, Instant};
 use crossbeam_channel as cbc;
-use log::info;
+use log::{info, error};
 
 /***************************************/
 /*           Local modules             */
@@ -133,7 +133,7 @@ impl ElevatorFSM {
                     match floor {
                         Ok(f) => self.handle_event(Event::FloorReached(f)),
                         Err(e) => {
-                            eprintln!("ERROR - hw_floor_sensor_rx: {}", e);
+                            error!("ERROR - hw_floor_sensor_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -144,7 +144,7 @@ impl ElevatorFSM {
                             self.hall_requests = hall_requests;
                         }
                         Err(e) => {
-                            eprintln!("ERROR - fsm_hall_requests_rx: {}", e);
+                            error!("ERROR - fsm_hall_requests_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -156,7 +156,7 @@ impl ElevatorFSM {
                             let _ = self.fsm_state_tx.send(self.state.clone());
                         }
                         Err(e) => {
-                            eprintln!("ERROR - fsm_cab_request_rx: {}", e);
+                            error!("ERROR - fsm_cab_request_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -166,7 +166,7 @@ impl ElevatorFSM {
                         Ok(true) => self.handle_event(Event::StopPressed),
                         Ok(false) => (),
                         Err(e) => {
-                            eprintln!("ERROR - hw_stop_button_rx: {}", e);
+                            error!("ERROR - hw_stop_button_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -175,7 +175,7 @@ impl ElevatorFSM {
                     match obstruction {
                         Ok(value) => self.obstruction = value,
                         Err(e) => {
-                            eprintln!("ERROR - hw_obstruction_rx: {}", e);
+                            error!("ERROR - hw_obstruction_rx: {}", e);
                             std::process::exit(1);
                         }
                     }
