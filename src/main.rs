@@ -160,6 +160,8 @@ fn main() -> std::io::Result<()> {
         .states
         .insert(id.clone(), ElevatorState::new(n_floors));
 
+    info!("Elevator data read from file {:?}", elevator_data);
+
     // Start the coordinator module
     let mut coordinator = Coordinator::new(
         elevator_data,

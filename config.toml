@@ -1,6 +1,6 @@
 [network]
 id_gen_address = "8.8.8.8:53"
-msg_port = 19734
+msg_port = 19735
 peer_port = 19738
 max_retries = 3
 ack_timeout = 4000
@@ -12,5 +12,5 @@ door_open_time = 3000
 [hardware]
 n_floors = 4
 driver_address = "host.docker.internal"
-driver_port = 15657
+driver_port = 15658
 hw_thread_sleep_time = 10
