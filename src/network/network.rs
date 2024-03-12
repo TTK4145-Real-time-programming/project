@@ -14,10 +14,10 @@
  *
  * # Constructor arguments
  * - `config`:                  Network configuration settings.
- * - `net_data_send_rx`:     Receiver for elevator data to be sent.
- * - `net_data_recv_tx`:     Sender for forwarding received elevator data.
- * - `net_peer_update_tx`:          Sender for forwarding received peer updates.
- * - `net_peer_tx_enable_rx`:       Receiver to enable/disable peer ID broadcasting.
+ * - `net_data_send_rx`:        Receiver for elevator data to be sent.
+ * - `net_data_recv_tx`:        Sender for forwarding received elevator data.
+ * - `net_peer_update_tx`:      Sender for forwarding received peer updates.
+ * - `net_peer_tx_enable_rx`:   Receiver to enable/disable peer ID broadcasting.
  *
  */
 
@@ -31,7 +31,6 @@ use std::thread::Builder;
 use std::time::{Duration, Instant};
 use std::process;
 use std::net;
-use std::str;
 use log::{info, error};
 
 /***************************************/
@@ -104,66 +103,9 @@ impl Network {
                             // Get all available peer addresses
                             let peer_addresses = data.states.keys().cloned().collect::<Vec<String>>();
 
-                            // Create a UDP socket
-                            let socket = match UdpSocket::bind("0.0.0.0:0") {
-                                Ok(s) => s,
-                                Err(_) => process::exit(1),
-                            };
+                            // Send the data to all available peers
+                            send_ack(peer_addresses, data, max_retries, ack_timeout);
 
-                            // Send data to all available peers
-                            for peer_address in peer_addresses {
-                                let mut retries = 0;
-
-                                // Serialize the data
-                                let serialized_data_string = serde_json::to_string(&data).unwrap();
-                                let serialized_data = serialized_data_string.as_bytes();
-
-                                // Retry until max_retries or ACK received
-                                while retries < max_retries {
-                                    
-                                    if socket.send_to(&serialized_data, &peer_address).is_ok() {
-                                        let start = Instant::now();
-                                        let mut ack_received = false;
-
-                                        // Set a non-blocking read timeout for ACK
-                                        socket.set_read_timeout(Some(Duration::from_millis(ack_timeout))).unwrap();
-
-                                        while start.elapsed() < Duration::from_millis(ack_timeout) {
-                                            let mut buffer = [0; 1024];
-                                            match socket.recv_from(&mut buffer) {
-                                                Ok((_number_of_bytes, src_addr)) => {
-                                                    if src_addr.to_string() == peer_address {
-
-                                                        // Verify if the received message is an ACK
-                                                        let msg = String::from_utf8_lossy(&buffer[.._number_of_bytes]);
-                                                        let ack = msg.trim();
-                                                        if ack == "ACK" {
-                                                            ack_received = true;
-                                                            break;
-                                                        }
-                                                    }
-                                                },
-                                                Err(_) => continue, // Timeout
-                                            }
-                                        }
-
-                                        if ack_received {
-                                            break; // Exit the retry loop on receiving ACK
-                                        }
-                                        info!("No ACK received, retrying...");
-                                        retries += 1;
-                                    } 
-                                    
-                                    else {
-                                        info!("Failed to send data to {}", peer_address);
-                                        retries += 1;
-                                    }
-                                
-                                    if retries == max_retries {
-                                        info!("Failed to send data to {} after {} retries", peer_address, max_retries);
-                                    }
-                                }
-                            }
                         }
                         Err(e) => error!("Error receiving data to send: {}", e),
                     }
@@ -185,38 +127,116 @@ impl Network {
             };
 
             loop {
-                let mut buffer = [0; 1024];
-                match socket.recv_from(&mut buffer) {
-                    Ok((number_of_bytes, src_addr)) => {
-                        // Deserialize or directly use the data as needed
-                        let received_data = &buffer[..number_of_bytes];
-                        let message = match str::from_utf8(received_data) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                error!("Invalid UTF-8 sequence: {}", e);
-                                continue;
-                            }
-                        };
-
-                        // Deserialize into ElevatorData
-                        let deserialized_message: ElevatorData = serde_json::from_str(message).unwrap();
-
-                        // Send the received message on the channel
-                        match net_data_recv_tx.send(deserialized_message) {
-                            Ok(_) => (),
-                            Err(e) => error!("Failed to send received data to coordinator: {}", e),
-                        }
-
-                        // Send ACK back to the sender
-                        if let Err(e) = socket.send_to(b"ACK", src_addr) {
-                            error!("Failed to send ACK to {}: {}", src_addr, e);
-                        }
-                    },
-                    Err(e) => error!("Failed to receive a message: {}", e),
+                match recv_ack(&socket) {
+                    Some(data) => {
+                        net_data_recv_tx.send(data).unwrap();
+                    }
+                    None => {}
                 }
             }
         }).unwrap();
 
         Ok(Network { id })
+    }
+}
+
+
+/***************************************/
+/*           Local functions           */
+/***************************************/
+fn send_ack(peer_addresses: Vec<String>, data: ElevatorData, max_retries: u32, ack_timeout: u64) {
+    // Create a UDP socket
+    let socket = match UdpSocket::bind("0.0.0.0:0") {
+        Ok(s) => s,
+        Err(_) => process::exit(1),
+    };
+
+    // Send data to all available peers
+    for peer_address in peer_addresses {
+        let mut retries = 0;
+
+        // Serialize the data
+        let serialized_data_string = serde_json::to_string(&data).unwrap();
+        let serialized_data = serialized_data_string.as_bytes();
+
+        // Retry until max_retries or ACK received
+        while retries < max_retries {
+            
+            if socket.send_to(&serialized_data, &peer_address).is_ok() {
+                let start = Instant::now();
+                let mut ack_received = false;
+
+                // Set a non-blocking read timeout for ACK
+                socket.set_read_timeout(Some(Duration::from_millis(ack_timeout))).unwrap();
+
+                while start.elapsed() < Duration::from_millis(ack_timeout) {
+                    let mut buffer = [0; 1024];
+                    match socket.recv_from(&mut buffer) {
+                        Ok((_number_of_bytes, src_addr)) => {
+                            if src_addr.to_string() == peer_address {
+
+                                // Verify if the received message is an ACK
+                                let msg = String::from_utf8_lossy(&buffer[.._number_of_bytes]);
+                                let ack = msg.trim();
+                                if ack == "ACK" {
+                                    ack_received = true;
+                                    break;
+                                }
+                            }
+                        },
+                        Err(_) => continue, // Timeout
+                    }
+                }
+
+                if ack_received {
+                    break; // Exit the retry loop on receiving ACK
+                }
+                info!("No ACK received, retrying...");
+                retries += 1;
+            } 
+            
+            else {
+                info!("Failed to send data to {}", peer_address);
+                retries += 1;
+            }
+        
+            if retries == max_retries {
+                info!("Failed to send data to {} after {} retries", peer_address, max_retries);
+            }
+        }
+    }
+}
+
+fn recv_ack(socket: &UdpSocket) -> Option<ElevatorData> {
+    let mut buffer = [0; 1024];
+    match socket.recv_from(&mut buffer) {
+        Ok((number_of_bytes, src_addr)) => {
+            let received_data = &buffer[..number_of_bytes];
+            let message = match std::str::from_utf8(received_data) {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("Invalid UTF-8 sequence: {}", e);
+                    return None;
+                }
+            };
+
+            let deserialized_message: Result<ElevatorData, _> = serde_json::from_str(message);
+            match deserialized_message {
+                Ok(data) => {
+                    if let Err(e) = socket.send_to(b"ACK", src_addr) {
+                        error!("Failed to send ACK to {}: {}", src_addr, e);
+                    }
+                    Some(data)
+                },
+                Err(e) => {
+                    error!("Failed to deserialize message: {}", e);
+                    None
+                }
+            }
+        },
+        Err(e) => {
+            error!("Failed to receive a message: {}", e);
+            None
+        },
     }
 }
