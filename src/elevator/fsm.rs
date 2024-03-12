@@ -36,7 +36,7 @@
 /***************************************/
 /*        3rd party libraries          */
 /***************************************/
-use driver_rust::elevio::elev::{CAB, DIRN_DOWN, DIRN_STOP, DIRN_UP, HALL_DOWN, HALL_UP};
+use driver_rust::elevio::elev::{HALL_UP, HALL_DOWN, CAB};
 use std::time::{Duration, Instant};
 use crossbeam_channel as cbc;
 use log::{info, error};
@@ -124,7 +124,7 @@ impl ElevatorFSM {
 
     pub fn run(mut self) {
         // Find the initial floor
-        let _ = self.hw_motor_direction_tx.send(DIRN_DOWN);
+        let _ = self.hw_motor_direction_tx.send(Direction::Down.to_u8());
 
         // Main loop
         loop {
@@ -394,7 +394,7 @@ impl ElevatorFSM {
     */
     fn open_door(&mut self) {
         let _ = self.hw_door_light_tx.send(true);
-        let _ = self.hw_motor_direction_tx.send(DIRN_STOP); // Don't like having this here
+        let _ = self.hw_motor_direction_tx.send(Direction::Stop.to_u8()); // Don't like having this here
         self.door_timer = Instant::now() + Duration::from_millis(self.door_open_time);
         self.state.behaviour = DoorOpen;
         let _ = self.fsm_state_tx.send(self.state.clone());
