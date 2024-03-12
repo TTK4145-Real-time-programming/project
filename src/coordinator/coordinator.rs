@@ -2,11 +2,10 @@
 /*        3rd party libraries          */
 /***************************************/
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
-use log::info;
+use log::{info, error};
 use network_rust::udpnet::peers::PeerUpdate;
 use std::{collections::HashMap, process::Command};
 use crossbeam_channel as cbc;
-use std::time::Duration;
 
 /***************************************/
 /*           Local modules             */
@@ -111,7 +110,7 @@ impl Coordinator {
                    match package {
                         Ok(elevator_data) => self.handle_event(Event::NewPackage(elevator_data)),
                         Err(e) => {
-                            eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
+                            error!("ERROR - net_data_recv_rx {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -122,7 +121,7 @@ impl Coordinator {
                     match peer {
                         Ok(peer_update) => self.handle_event(Event::NewPeerUpdate(peer_update)),
                         Err(e) => {
-                            eprintln!("Error extracting peer update package in coordinator: {:?}\r\n", e);
+                            error!("ERROR - net_peer_update_rx {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -133,7 +132,7 @@ impl Coordinator {
                     match request {
                         Ok(request) => self.handle_event(Event::RequestReceived(request)),
                         Err(e) => {
-                            eprintln!("Error extracting button package in coordinator: {:?}\r\n", e);
+                            error!("ERROR - hw_request_rx {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -144,7 +143,7 @@ impl Coordinator {
                     match state {
                         Ok(state) => self.handle_event(Event::NewElevatorState(state)),
                         Err(e) => {
-                            eprintln!("Error extracting network package in coordinator: {:?}\r\n", e);
+                            error!("ERROR - fsm_state_rx {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -155,7 +154,7 @@ impl Coordinator {
                     match completed_order {
                         Ok(finish_order) => self.handle_event(Event::OrderComplete(finish_order)),
                         Err(e) => {
-                            eprintln!("Error extracting completed order from fsm in coordinator: {:?}\r\n", e);
+                            error!("ERROR - fsm_order_complete_rx {:?}\r\n", e);
                             std::process::exit(1);
                         }
                     }
@@ -165,9 +164,6 @@ impl Coordinator {
                     break;
                 }
     
-                default(Duration::from_millis(50)) => {
-                    // TODO: Maybe do something idunno
-                }
             }
         }
     }
@@ -252,9 +248,7 @@ impl Coordinator {
                         .cab_requests[request.0 as usize] = true;
 
                     //Sending the change to the fsm
-                    self.fsm_cab_request_tx
-                        .send(request.0)
-                        .expect("Failed to send cab request to fsm");
+                    self.fsm_cab_request_tx.send(request.0).expect("Failed to send cab request to fsm");
 
                     //Updating lights
                     self.update_lights((request.0, CAB, true));
@@ -319,10 +313,7 @@ impl Coordinator {
     fn update_lights(&self, light: (u8, u8, bool)) {
         //Sending change in lights
         if let Err(e) = self.hw_button_light_tx.send(light) {
-            eprintln!(
-                "Failed to send light command to light thread from coordinator: {:?}",
-                e
-            );
+            error!("Failed to send light command to light thread from coordinator: {:?}", e);
             std::process::exit(1);
         }
     }
@@ -370,7 +361,7 @@ impl Coordinator {
         else {
             // If the executable did not run successfully, you can handle the error
             let error_message = String::from_utf8(hra_output.stderr).expect("Invalid UTF-8 error hra_output");
-            eprintln!("Error executing hall_request_assigner: {:?}", error_message);
+            error!("Error executing hall_request_assigner: {:?}", error_message);
             std::process::exit(1);
         }
 
