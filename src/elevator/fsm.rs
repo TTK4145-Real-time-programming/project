@@ -39,7 +39,7 @@
 use driver_rust::elevio::elev::{HALL_UP, HALL_DOWN, CAB};
 use std::time::{Duration, Instant};
 use crossbeam_channel as cbc;
-use log::{info, error};
+use log::error;
 
 /***************************************/
 /*           Local modules             */
@@ -48,14 +48,6 @@ use crate::config::ElevatorConfig;
 use crate::shared::Behaviour::{DoorOpen, Idle, Moving};
 use crate::shared::Direction::{Down, Stop, Up};
 use crate::shared::{Direction, ElevatorState};
-
-/***************************************/
-/*               Enums                 */
-/***************************************/
-enum Event {
-    FloorReached(u8),
-    StopPressed,
-}
 
 /***************************************/
 /*             Public API              */
@@ -408,54 +400,6 @@ impl ElevatorFSM {
         let _ = self.hw_door_light_tx.send(false);
     }
 
-    fn log_orders(&self) {
-        info!("CAB: {:?}", self.state.cab_requests);
-        info!("HALL: {:?}", self.hall_requests);
-    }
-
-
-
-    // --------- Unused methods --------- //
-
-    fn _should_stop(&self) -> bool {
-        match self.state.direction {
-            Up => {
-                // Check for order at current floor
-                if self.state.cab_requests[self.state.floor as usize]
-                    || self.hall_requests[self.state.floor as usize][HALL_UP as usize]
-                    || self.hall_requests[self.state.floor as usize][HALL_DOWN as usize]
-                {
-                    return true;
-                }
-
-                // Check if top floor is reached
-                if self.state.floor == self.n_floors - 1 {
-                    return false;
-                }
-
-                // Check for orders above current floor
-                self.has_orders_in_direction(Up)
-            }
-            Down => {
-                // Check for order at current floor
-                if self.state.cab_requests[self.state.floor as usize]
-                    || self.hall_requests[self.state.floor as usize][HALL_UP as usize]
-                    || self.hall_requests[self.state.floor as usize][HALL_DOWN as usize]
-                {
-                    return true;
-                }
-
-                // Check if bottom floor is reached
-                if self.state.floor == 0 {
-                    return false;
-                }
-
-                // Check for orders below current floor
-                self.has_orders_in_direction(Down)
-            }
-            Stop => true,
-        }
-    }
 }
 
 /***************************************/
