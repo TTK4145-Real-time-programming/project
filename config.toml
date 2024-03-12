@@ -7,7 +7,8 @@ ack_timeout = 4000
 
 [elevator]
 n_floors = 4
-door_open_time = 3000
+door_open_time = 5000
+motor_driving_time = 10000
 
 [hardware]
 n_floors = 4

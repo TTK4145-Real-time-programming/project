@@ -41,6 +41,8 @@ use std::time::{Duration, Instant};
 use crossbeam_channel as cbc;
 use log::info;
 
+use std::thread::sleep;
+
 /***************************************/
 /*           Local modules             */
 /***************************************/
@@ -74,14 +76,21 @@ pub struct ElevatorFSM {
     fsm_order_complete_tx: cbc::Sender<(u8, u8)>,
     fsm_state_tx: cbc::Sender<ElevatorState>,
 
+    //Network channels
+    _net_peer_tx_enable_tx: cbc::Sender<bool>,
+
     // Private fields
     fsm_terminate_rx: cbc::Receiver<()>,
     hall_requests: Vec<Vec<bool>>,
     state: ElevatorState,
     n_floors: u8,
     obstruction: bool,
+    started_moving: bool,
+    peer_enable: bool,
     door_open_time: u64,
+    motor_driving_time: u64,
     door_timer: Instant,
+    motor_timer: Instant,
 }
 
 impl ElevatorFSM {
@@ -99,6 +108,8 @@ impl ElevatorFSM {
         fsm_order_complete_tx: cbc::Sender<(u8, u8)>,
         fsm_state_tx: cbc::Sender<ElevatorState>,
         fsm_terminate_rx: cbc::Receiver<()>,
+        
+        _net_peer_tx_enable_tx: cbc::Sender<bool>,
     ) -> ElevatorFSM {
         ElevatorFSM {
             hw_motor_direction_tx,
@@ -112,13 +123,19 @@ impl ElevatorFSM {
             fsm_order_complete_tx,
             fsm_state_tx,
             fsm_terminate_rx,
+
+            _net_peer_tx_enable_tx,
             
             hall_requests: vec![vec![false; 2]; config.n_floors as usize],
             state: ElevatorState::new(config.n_floors),
             n_floors: config.n_floors,
             obstruction: false,
+            started_moving: false,
+            peer_enable: true,
             door_open_time: config.door_open_time,
+            motor_driving_time: config.motor_driving_time,
             door_timer: Instant::now(),
+            motor_timer: Instant::now(),
         }
     }
 
@@ -203,7 +220,26 @@ impl ElevatorFSM {
                                 self.close_door();
                             }
                         }
-                        Moving => (), // Should implement stop button logic here
+                        Moving => {
+                            if !self.started_moving {
+                                self.motor_timer = Instant::now() + Duration::from_millis(self.motor_driving_time);
+                                self.started_moving = true;
+                            }
+
+                            if self.motor_timer <= Instant::now() && self.started_moving {
+                                info!("Motor Loss elevator!");
+                                
+                                //Making elevator unavalible for network
+                                if self.peer_enable {
+                                    let _ = self._net_peer_tx_enable_tx.send(false);
+                                    self.peer_enable = false;
+                                }
+
+                                //Trying to start up motor
+                                self.started_moving = false;
+                                let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+                            }
+                        }
                     }
                 }
             }
@@ -213,6 +249,16 @@ impl ElevatorFSM {
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::FloorReached(floor) => {
+                //Resting timer for drive time between floors
+                if self.started_moving && !self.peer_enable{
+                    let _ = self._net_peer_tx_enable_tx.send(true);
+                    self.peer_enable = true;
+                    self.started_moving = false;
+                    info!("Motor power restored. Elavtor back in normal state.");
+
+                    sleep(Duration::from_millis(100));
+                }
+
                 self.state.floor = floor;
 
                 // If orders at this floor, complete them and open the door
