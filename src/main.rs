@@ -164,7 +164,6 @@ fn main() -> std::io::Result<()> {
 
     // Start the coordinator module
     let mut coordinator = Coordinator::new(
-        config,
         _elevator_data,
         _id,
         _n_floors,

@@ -14,11 +14,3 @@ n_floors = 4
 driver_address = "host.docker.internal"
 driver_port = 15658
 hw_thread_sleep_time = 10
-
-[orders]
-cab_calls = [
-    false,
-    false,
-    false,
-    false,
-]

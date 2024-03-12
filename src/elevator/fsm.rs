@@ -48,6 +48,7 @@ use crate::config::ElevatorConfig;
 use crate::shared::Behaviour::{DoorOpen, Idle, Moving};
 use crate::shared::Direction::{Down, Stop, Up};
 use crate::shared::{Direction, ElevatorState};
+use crate::elevator::cab_orders::*;
 
 /***************************************/
 /*               Enums                 */
@@ -126,6 +127,8 @@ impl ElevatorFSM {
         // Find the initial floor
         let _ = self.hw_motor_direction_tx.send(DIRN_DOWN);
 
+        self.load_saved_cab_calls();
+
         // Main loop
         loop {
             cbc::select! {
@@ -153,6 +156,7 @@ impl ElevatorFSM {
                     match request {
                         Ok(request) => {
                             self.state.cab_requests[request as usize] = true;
+                            save_cab_orders(self.state.cab_requests.clone());
                             let _ = self.fsm_state_tx.send(self.state.clone());
                         }
                         Err(e) => {
@@ -318,12 +322,15 @@ impl ElevatorFSM {
         // Remove cab orders at current floor.
         if self.state.cab_requests[current_floor as usize] {
             orders_completed = true;
-
+            
             // Update the state and send it to the coordinator
             self.state.cab_requests[current_floor as usize] = false;
             self.fsm_order_complete_tx
-                .send((current_floor, CAB))
-                .unwrap();
+            .send((current_floor, CAB))
+            .unwrap();
+
+            //Saving to cab order change to file
+            save_cab_orders(self.state.cab_requests.clone());
         }
         // Remove hall up orders.
         if self.hall_requests[current_floor as usize][HALL_UP as usize]
@@ -380,6 +387,18 @@ impl ElevatorFSM {
     fn log_orders(&self) {
         info!("CAB: {:?}", self.state.cab_requests);
         info!("HALL: {:?}", self.hall_requests);
+    }
+
+
+
+
+    // Handles saved cab calls 
+    fn load_saved_cab_calls(&mut self) {
+        //Setting cab orders from file to elevatorData
+        self.state.cab_requests = load_cab_orders().cab_calls;
+        
+        // Updating coordinator with the init state
+        let _ = self.fsm_state_tx.send(self.state.clone());
     }
 
     // --------- Unused methods --------- //

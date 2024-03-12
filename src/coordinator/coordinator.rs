@@ -7,8 +7,6 @@ use network_rust::udpnet::peers::PeerUpdate;
 use std::{collections::HashMap, process::Command};
 use crossbeam_channel as cbc;
 use std::time::Duration;
-use std::fs::File;
-use std::io::Write;
 
 /***************************************/
 /*           Local modules             */
@@ -43,7 +41,6 @@ pub struct Coordinator {
     elevator_data: ElevatorData,
     local_id: String,
     n_floors: u8,
-    config: Config,
 
     // Hardware channels
     hw_button_light_tx: cbc::Sender<(u8, u8, bool)>,
@@ -63,7 +60,6 @@ pub struct Coordinator {
 
 impl Coordinator {
     pub fn new(
-        config: Config,
         elevator_data: ElevatorData,
         local_id: String,
         n_floors: u8,
@@ -88,7 +84,6 @@ impl Coordinator {
             elevator_data,
             local_id,
             n_floors,
-            config,
 
             //Hardware channels
             hw_button_light_tx,
@@ -108,9 +103,6 @@ impl Coordinator {
     }
 
     pub fn run(&mut self) {
-        //Transmitting cab calls from file to fsm
-        self.handle_saved_cab_calls();
-
         // Main loop
         loop {
             cbc::select! {
@@ -264,9 +256,6 @@ impl Coordinator {
                         .send(request.0)
                         .expect("Failed to send cab request to fsm");
 
-                    // Saving cab request to file
-                    self.save_cab_to_file(request.0 as usize, true);
-
                     //Updating lights
                     self.update_lights((request.0, CAB, true));
                 } 
@@ -313,8 +302,6 @@ impl Coordinator {
                         .get_mut(&self.local_id)
                         .unwrap()
                         .cab_requests[completed_order.0 as usize] = false;
-
-                    self.save_cab_to_file(completed_order.0 as usize, false)
                 }
 
                 if completed_order.1 == HALL_DOWN || completed_order.1 == HALL_UP {
@@ -408,47 +395,6 @@ impl Coordinator {
 
         else {
             MergeType::Reject
-        }
-    }
-
-    //Saves cab request to file
-    fn save_cab_to_file(&mut self, floor: usize, status: bool) {
-        if status {
-            self.config.orders.cab_calls[floor] = true;
-        }else{
-            self.config.orders.cab_calls[floor] = false;
-        }
-
-        // Serialize the Config instance to a TOML String
-        let toml_string = toml::to_string_pretty(&self.config)
-            .expect("Failed to serialize config");
-
-        // Attempt to create the file
-        let mut file = File::create("config.toml")
-            .expect("Failed to create file");
-
-        // Writing to file
-        file.write_all(toml_string.as_bytes())
-            .expect("Failed to write to file");
-    }
-
-    // Handles saved cab calls 
-    fn handle_saved_cab_calls(&mut self) {
-        //Setting cab orders from file to elevatorData
-        self.elevator_data
-            .states
-            .get_mut(&self.local_id)
-            .unwrap()
-            .cab_requests = self.config.orders.cab_calls.clone();
-        
-        // Transmitting all cab calls to fsm
-        let local_cab_request = self.elevator_data.states[&self.local_id].cab_requests.clone();
-        for floor in 0..self.n_floors {
-            if local_cab_request[floor as usize] == true {
-                self.fsm_cab_request_tx
-                .send(floor)
-                .expect("Failed to send cab request to fsm");
-            }
         }
     }
 }
