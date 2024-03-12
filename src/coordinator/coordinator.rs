@@ -26,7 +26,7 @@ pub enum Event {
 
 #[derive(PartialEq, Debug)]
 pub enum MergeType {
-    Conflict,
+    Merge,
     Accept,
     Reject,
 }
@@ -171,7 +171,7 @@ impl Coordinator {
     fn handle_event(&mut self, event: Event) {
         match event {
             Event::NewPackage(elevator_data) => {
-                let merge_type = self.check_version(elevator_data.version);
+                let merge_type = self.check_merge_type(elevator_data.clone());
 
                 match merge_type {
                     MergeType::Accept => {
@@ -206,8 +206,24 @@ impl Coordinator {
 
                         self.hall_request_assigner(false);
                     }
-                    MergeType::Conflict => {
-                        // TODO: merge conflict
+                    MergeType::Merge => {
+                        // Hall requests should be "OR"ed
+                        for floor in 0..self.n_floors {
+                            self.elevator_data.hall_requests[floor as usize][HALL_DOWN as usize] =
+                                self.elevator_data.hall_requests[floor as usize][HALL_DOWN as usize]
+                                    || elevator_data.hall_requests[floor as usize][HALL_DOWN as usize];
+                            self.elevator_data.hall_requests[floor as usize][HALL_UP as usize] =
+                                self.elevator_data.hall_requests[floor as usize][HALL_UP as usize]
+                                    || elevator_data.hall_requests[floor as usize][HALL_UP as usize];
+                        }
+
+                        // Incoming states should overwrite existing states, but not the local state
+                        for (id, state) in elevator_data.states.iter() {
+                            if id != &self.local_id {
+                                self.elevator_data.states.insert(id.clone(), state.clone());
+                            }
+                        }
+                        
                     }
                     MergeType::Reject => {
                         // TODO: reject merge
@@ -374,15 +390,18 @@ impl Coordinator {
         }
     }
 
-    // Checks if incomming version is newer than local version
-    fn check_version(&self, version: u64) -> MergeType {
-        if version > self.elevator_data.version {
+    fn check_merge_type(&self, elevator_data: ElevatorData) -> MergeType {
+        let new_elevators = elevator_data.states.keys().len() > self.elevator_data.states.keys().len();
+        let version = elevator_data.version;
+
+        // New elevators in data should yield a merge
+        if new_elevators {
+            MergeType::Merge
+        }
+        
+        else if version > self.elevator_data.version {
             MergeType::Accept
         } 
-        
-        else if version == self.elevator_data.version {
-            MergeType::Conflict
-        }
 
         else {
             MergeType::Reject
@@ -418,8 +437,8 @@ pub mod testing {
             self.update_lights(light);
         }
 
-        pub fn test_check_version(&self, version: u64) -> super::MergeType {
-            self.check_version(version)
+        pub fn test_check_merge_type(&self, elevator_data: ElevatorData) -> super::MergeType {
+            self.check_merge_type(elevator_data)
         }
 
         pub fn test_set_version(&mut self, version: u64) {
