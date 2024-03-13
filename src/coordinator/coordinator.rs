@@ -237,7 +237,9 @@ impl Coordinator {
 
                 //Removing dead elevators
                 for elevator in lost_elevators.iter_mut() {
-                    self.elevator_data.states.remove(elevator);
+                    if elevator != &self.local_id {
+                        self.elevator_data.states.remove(elevator);
+                    }
                 }
 
                 // Add new elevators

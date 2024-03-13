@@ -2,20 +2,20 @@
 id_gen_address = "8.8.8.8:53"
 msg_port = 19735
 peer_port = 19738
-max_retries = 3
-ack_timeout = 4000
+max_retries = 10
+ack_timeout = 100
 max_attempts_id_generation = 5
 delay_between_attempts_id_generation = 1000
 
 
 [elevator]
 n_floors = 4
-door_open_time = 1000
-door_timeout = 3000
+door_open_time = 3000
+door_timeout = 15000
 motor_driving_timeout = 10000
 
 [hardware]
 n_floors = 4
-driver_address = "host.docker.internal"
-driver_port = 15658
+driver_address = "localhost"
+driver_port = 15657
 hw_thread_sleep_time = 10
