@@ -17,6 +17,8 @@ pub enum Behaviour {
     Moving,
     #[serde(rename = "doorOpen")]
     DoorOpen,
+    #[serde(rename = "error")]
+    Error,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

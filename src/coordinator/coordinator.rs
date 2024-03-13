@@ -237,7 +237,9 @@ impl Coordinator {
 
                 //Removing dead elevators
                 for elevator in lost_elevators.iter_mut() {
-                    self.elevator_data.states.remove(elevator);
+                    if elevator != &self.local_id {
+                        self.elevator_data.states.remove(elevator);
+                    }
                 }
 
                 // Add new elevators
@@ -336,9 +338,24 @@ impl Coordinator {
 
     // Calcualting hall requests
     fn hall_request_assigner(&mut self, transmit: bool) {
+        //Removing elevators in error state
+        let mut elevator_data = self.elevator_data.clone();
+        self.remove_error_states(&mut elevator_data.states);
 
+        if elevator_data.states.is_empty() {
+            // Only transmit hall requests to FSM
+            self.fsm_hall_requests_tx.send(elevator_data.hall_requests).expect("Failed to send hall requests to fsm");
+            if transmit {
+                self.elevator_data.version += 1;
+                self.net_data_send_tx
+                    .send(self.elevator_data.clone())
+                    .expect("Failed to send elevator data to network thread");
+            }
+            return;
+        }
+        
         // Serialize data
-        let mut json_value: serde_json::Value = serde_json::to_value(&self.elevator_data)
+        let mut json_value: serde_json::Value = serde_json::to_value(&elevator_data)
             .expect("Failed to serialize data");
 
         // Remove the `version` field from the serialized data
@@ -406,6 +423,11 @@ impl Coordinator {
         else {
             MergeType::Reject
         }
+    }
+
+    //Removes elevators in error state 
+    fn remove_error_states(&self, states: &mut HashMap<String, ElevatorState>) {
+        states.retain(|_, state| state.behaviour != Behaviour::Error);
     }
 }
 

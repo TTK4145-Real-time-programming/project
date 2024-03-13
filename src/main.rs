@@ -149,7 +149,6 @@ fn main() -> std::io::Result<()> {
         fsm_order_complete_tx,
         fsm_state_tx,
         fsm_terminate_rx,
-        net_peer_tx_enable_tx,
     );
 
     let elevator_fsm_thread = Builder::new().name("elevator_fsm".into());

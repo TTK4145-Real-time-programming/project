@@ -30,6 +30,7 @@ pub struct ElevatorConfig {
     pub n_floors: u8,
     pub door_open_time: u64,
     pub motor_driving_timeout: u64,
+    pub door_timeout: u64,
 }
 
 #[derive(Deserialize, Clone)]
@@ -47,3 +48,4 @@ pub fn load_config() -> Config {
     let config_str = fs::read_to_string("config.toml").expect("Failed to read configuration file");
     toml::from_str(&config_str).expect("Failed to parse configuration file")
 }
+
