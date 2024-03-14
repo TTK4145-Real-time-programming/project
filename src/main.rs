@@ -36,7 +36,7 @@ fn main() -> std::io::Result<()> {
     let mut config = config::load_config();
 
     // Parse command line arguments
-    let matches = App::new("project")
+    let arguments = App::new("project")
         .version("1.0")
         .about("Elevator project in TTK4145 distributed systems.")
         .arg(
@@ -63,15 +63,15 @@ fn main() -> std::io::Result<()> {
         .get_matches();
 
     // Override config with command line arguments if provided
-    if let Some(addr) = matches.value_of("hardware_address") {
+    if let Some(addr) = arguments.value_of("hardware_address") {
         config.hardware.driver_address = addr.to_string();
     }
 
-    if let Some(port) = matches.value_of("hardware_port") {
+    if let Some(port) = arguments.value_of("hardware_port") {
         config.hardware.driver_port = port.parse().expect("Failed to parse hardware port");
     }
 
-    if let Some(port) = matches.value_of("network_port") {
+    if let Some(port) = arguments.value_of("network_port") {
         config.network.msg_port = port.parse().expect("Failed to parse network port");
     }
 
@@ -79,10 +79,11 @@ fn main() -> std::io::Result<()> {
     info!("Driver port: {}", config.hardware.driver_port.to_string());
     info!("Network port: {}", config.network.msg_port.to_string());
 
-    // Termination signals
+    // Channels for unit testing
     let (_fsm_terminate_tx, fsm_terminate_rx) = cbc::unbounded::<()>();
     let (_coordinator_terminate_tx, coordinator_terminate_rx) = cbc::unbounded::<()>();
     let (_hw_terminate_tx, hw_terminate_rx) = cbc::unbounded::<()>();
+    let (_net_peer_tx_enable_tx, net_peer_tx_enable_rx) = cbc::unbounded::<bool>();
 
     // FSM channels
     let (fsm_hall_requests_tx, fsm_hall_requests_rx) = cbc::unbounded::<Vec<Vec<bool>>>();
@@ -94,8 +95,7 @@ fn main() -> std::io::Result<()> {
     let (net_data_send_tx, net_data_send_rx) = cbc::unbounded::<ElevatorData>();
     let (net_data_recv_tx, net_data_recv_rx) = cbc::unbounded::<ElevatorData>();
     let (net_peer_update_tx, net_peer_update_rx) = cbc::unbounded::<udpnet::peers::PeerUpdate>();
-    let (net_peer_tx_enable_tx, net_peer_tx_enable_rx) = cbc::unbounded::<bool>();
-
+    
     // Hardware channels
     let (hw_motor_direction_tx, hw_motor_direction_rx) = cbc::unbounded::<u8>();
     let (hw_button_light_tx, hw_button_light_rx) = cbc::unbounded::<(u8, u8, bool)>();
