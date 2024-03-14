@@ -222,8 +222,7 @@ impl Coordinator {
                             if id != &self.local_id {
                                 self.elevator_data.states.insert(id.clone(), state.clone());
                             }
-                        }
-                        
+                        } 
                     }
                     MergeType::Reject => {
                         // TODO: reject merge
@@ -408,7 +407,15 @@ impl Coordinator {
     }
 
     fn check_merge_type(&self, elevator_data: ElevatorData) -> MergeType {
-        let new_elevators = elevator_data.states.keys().len() > self.elevator_data.states.keys().len();
+        let mut new_elevators = false;
+        for key in self.elevator_data.states.keys() {
+            if elevator_data.states.contains_key(key) {
+                new_elevators = false;
+            } else {
+                new_elevators = true;
+                info!("New elevator on netowrk: {:?} \n", key);
+            }
+        }
         let version = elevator_data.version;
 
         // New elevators in data should yield a merge
@@ -496,6 +503,10 @@ pub mod testing {
             }
             peer_list.reverse();
             peer_list
+        }
+
+        pub fn test_hall_request(&self) -> Vec<Vec<bool>>{
+            self.elevator_data.hall_requests.clone()
         }
     }
 }
