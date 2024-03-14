@@ -23,24 +23,14 @@
  *
  */
 
-/**
- * Known bugs:
- *
- * - When obstruction is activated and deactivated, it stops the system.
- * - Doesn't stop when there is no orders at all and it's moving.
- *
- * Things that must be fixed:
- *
- */
-
 /***************************************/
-/*        3rd party libraries          */
+/*              libraries              */
 /***************************************/
 use driver_rust::elevio::elev::{HALL_UP, HALL_DOWN, CAB};
 use std::time::{Duration, Instant};
 use crossbeam_channel as cbc;
 use log::{info, error};
-use std::thread::sleep;
+
 
 /***************************************/
 /*           Local modules             */
@@ -76,9 +66,8 @@ pub struct ElevatorFSM {
     state: ElevatorState,
     n_floors: u8,
     obstruction: bool,
-    peer_enable: bool,
     door_open_time: u64,
-    motor_driving_timeout: u64,
+    motor_timeout: u64,
     door_timeout: u64,
     door_timer: Instant,
     obstruction_timer: Instant,
@@ -87,7 +76,7 @@ pub struct ElevatorFSM {
 
 impl ElevatorFSM {
     pub fn new(
-        config: &ElevatorConfig,
+        fsm_config: &ElevatorConfig,
 
         hw_motor_direction_tx: cbc::Sender<u8>,
         hw_floor_sensor_rx: cbc::Receiver<u8>,
@@ -116,14 +105,13 @@ impl ElevatorFSM {
             fsm_state_tx,
             fsm_terminate_rx,
             
-            hall_requests: vec![vec![false; 2]; config.n_floors as usize],
-            state: ElevatorState::new(config.n_floors),
-            n_floors: config.n_floors,
-            peer_enable: true,
+            hall_requests: vec![vec![false; 2]; fsm_config.n_floors as usize],
+            state: ElevatorState::new(fsm_config.n_floors),
+            n_floors: fsm_config.n_floors,
             obstruction: false,
-            door_open_time: config.door_open_time,
-            door_timeout: config.door_timeout,
-            motor_driving_timeout: config.motor_driving_timeout,
+            door_open_time: fsm_config.door_open_time,
+            door_timeout: fsm_config.door_timeout,
+            motor_timeout: fsm_config.motor_timeout,
             obstruction_timer: Instant::now(),
             door_timer: Instant::now(),
             motor_timer: Instant::now(),
@@ -138,11 +126,11 @@ impl ElevatorFSM {
         // Main loop
         loop {
             cbc::select! {
-                recv(self.hw_floor_sensor_rx) -> floor => {
-                    match floor {
-                        Ok(f) => self.handle_floor_hit(f),
-                        Err(e) => {
-                            error!("ERROR - hw_floor_sensor_rx: {}", e);
+                recv(self.hw_floor_sensor_rx) -> new_floor => {
+                    match new_floor {
+                        Ok(floor) => self.handle_floor_hit(floor),
+                        Err(error) => {
+                            error!("ERROR - hw_floor_sensor_rx: {}", error);
                             std::process::exit(1);
                         }
                     }
@@ -152,31 +140,21 @@ impl ElevatorFSM {
                         Ok(hall_requests) => {
                             self.hall_requests = hall_requests;
                         }
-                        Err(e) => {
-                            error!("ERROR - fsm_hall_requests_rx: {}", e);
+                        Err(error) => {
+                            error!("ERROR - fsm_hall_requests_rx: {}", error);
                             std::process::exit(1);
                         }
                     }
                 }
-                recv(self.fsm_cab_request_rx) -> request => {
-                    match request {
-                        Ok(request) => {
-                            self.state.cab_requests[request as usize] = true;
+                recv(self.fsm_cab_request_rx) -> new_cab_request => {
+                    match new_cab_request {
+                        Ok(new_cab_request) => {
+                            self.state.cab_requests[new_cab_request as usize] = true;
                             save_cab_orders(self.state.cab_requests.clone());
                             let _ = self.fsm_state_tx.send(self.state.clone());
                         }
-                        Err(e) => {
-                            error!("ERROR - fsm_cab_request_rx: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                recv(self.hw_stop_button_rx) -> stop_button => {
-                    match stop_button {
-                        Ok(true) => (),
-                        Ok(false) => (),
-                        Err(e) => {
-                            error!("ERROR - hw_stop_button_rx: {}", e);
+                        Err(error) => {
+                            error!("ERROR - fsm_cab_request_rx: {}", error);
                             std::process::exit(1);
                         }
                     }
@@ -184,8 +162,8 @@ impl ElevatorFSM {
                 recv(self.hw_obstruction_rx) -> obstruction => {
                     match obstruction {
                         Ok(value) => self.obstruction = value,
-                        Err(e) => {
-                            error!("ERROR - hw_obstruction_rx: {}", e);
+                        Err(error) => {
+                            error!("ERROR - hw_obstruction_rx: {}", error);
                             std::process::exit(1);
                         }
                     }
@@ -262,7 +240,6 @@ impl ElevatorFSM {
     }
 
     fn handle_floor_hit(&mut self, floor: u8) {
-        //Resting timer for drive time between floors
         if self.state.behaviour == Error{
             info!("Motor power restored. Elevator back in normal state.");
         }
@@ -360,7 +337,7 @@ impl ElevatorFSM {
     }
 
     fn reset_motor_timer(&mut self) {
-        self.motor_timer = Instant::now() + Duration::from_millis(self.motor_driving_timeout);
+        self.motor_timer = Instant::now() + Duration::from_millis(self.motor_timeout);
     }
 
     fn reset_door_timer(&mut self) {
@@ -428,9 +405,6 @@ impl ElevatorFSM {
         orders_completed
     }
 
-    /*
-        TODO: Door state-change should be transmited to cordinator
-    */
     fn open_door(&mut self) {
         let _ = self.hw_door_light_tx.send(true);
         self.reset_door_timer();
@@ -451,7 +425,6 @@ impl ElevatorFSM {
         // Updating coordinator with the init state
         let _ = self.fsm_state_tx.send(self.state.clone());
     }
-
 }
 
 /***************************************/

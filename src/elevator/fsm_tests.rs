@@ -54,7 +54,7 @@ mod fsm_tests {
         let config = ElevatorConfig { 
             n_floors: 4,
             door_open_time: 3000,
-            motor_driving_timeout: 10000,
+            motor_timeout: 10000,
             door_timeout: 20000,
         };
 
