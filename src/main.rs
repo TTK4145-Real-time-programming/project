@@ -29,10 +29,7 @@ mod shared;
 /***************************************/
 fn main() -> std::io::Result<()> {
 
-    // Initialize the logger
     env_logger::init();
-
-    // Load the configuration
     let mut config = config::load_config();
 
     // Parse command line arguments
@@ -121,9 +118,7 @@ fn main() -> std::io::Result<()> {
     );
 
     let elevator_driver_thread = Builder::new().name("elevator_driver".into());
-    elevator_driver_thread
-        .spawn(move || elevator_driver.run())
-        .unwrap();
+    elevator_driver_thread.spawn(move || elevator_driver.run()).unwrap();
 
     // Start the network module, contructor spawns the threads:
     // peer_tx, peer_rx, data_tx, data_rx
@@ -153,16 +148,12 @@ fn main() -> std::io::Result<()> {
     );
 
     let elevator_fsm_thread = Builder::new().name("elevator_fsm".into());
-    elevator_fsm_thread
-        .spawn(move || elevator_fsm.run())
-        .unwrap();
+    elevator_fsm_thread.spawn(move || elevator_fsm.run()).unwrap();
 
     // Create the elevator data instance
     let n_floors = config.hardware.n_floors.clone();
     let mut elevator_data = ElevatorData::new(n_floors);
-    elevator_data
-        .states
-        .insert(id.clone(), ElevatorState::new(n_floors));
+    elevator_data.states.insert(id.clone(), ElevatorState::new(n_floors));
 
     info!("Elevator data read from file {:?}", elevator_data);
 

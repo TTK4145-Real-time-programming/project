@@ -48,22 +48,22 @@ pub struct Network {
 
 impl Network {
     pub fn new(
-        config: &NetworkConfig,
+        net_config: &NetworkConfig,
         net_data_send_rx: cbc::Receiver<ElevatorData>,
         net_data_recv_tx: cbc::Sender<ElevatorData>,
         net_peer_update_tx: cbc::Sender<udpnet::peers::PeerUpdate>,
         net_peer_tx_enable_rx: cbc::Receiver<bool>,
     ) -> std::io::Result<Network> {
 
-        let msg_port = config.msg_port;
-        let peer_port = config.peer_port;
-        let ack_timeout = config.ack_timeout;
-        let max_retries = config.max_retries;
+        let msg_port = net_config.msg_port;
+        let peer_port = net_config.peer_port;
+        let ack_timeout = net_config.ack_timeout;
+        let max_retries = net_config.max_retries;
 
         let local_ip_result = find_local_ip(
-            config.id_gen_address.clone(),
-            config.max_attempts_id_generation,
-            Duration::from_millis(config.delay_between_attempts_id_generation),
+            net_config.id_gen_address.clone(),
+            net_config.max_attempts_id_generation,
+            Duration::from_millis(net_config.delay_between_attempts_id_generation),
         );
 
         let id = match local_ip_result {
@@ -82,6 +82,7 @@ impl Network {
         peer_tx_thread
             .spawn(move || {
                 if udpnet::peers::tx(peer_port, id_tx, net_peer_tx_enable_rx).is_err() {
+                    error!("Failed to broadcast peer ID. Exiting...");
                     process::exit(1);
                 }
             })
@@ -92,6 +93,7 @@ impl Network {
         peer_rx_thread
             .spawn(move || {
                 if udpnet::peers::rx(peer_port, net_peer_update_tx).is_err() {
+                    error!("Failed to receive peer updates. Exiting...");
                     process::exit(1);
                 }
             })
@@ -110,7 +112,9 @@ impl Network {
                             let peer_addresses = data.states.keys().cloned().collect::<Vec<String>>();
                             send_ack(peer_addresses, data, max_retries, ack_timeout);
                         }
-                        Err(e) => error!("Error receiving data to send: {}", e),
+                        Err(e) => {
+                            error!("Error receiving data to send: {}", e);
+                        }
                     }
                 }
 
@@ -134,7 +138,9 @@ impl Network {
                     Some(data) => {
                         net_data_recv_tx.send(data).unwrap();
                     }
-                    None => {}
+                    None => {
+                        error!("Failed to receive data");
+                    }
                 }
             }
         }).unwrap();
