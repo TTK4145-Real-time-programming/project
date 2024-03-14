@@ -411,10 +411,9 @@ impl Coordinator {
         for key in self.elevator_data.states.keys() {
             if elevator_data.states.contains_key(key) {
                 new_elevators = false;
-                print!("No new elevators \n");
             } else {
                 new_elevators = true;
-                print!("New elevator!!!!! \n");
+                info!("New elevator on netowrk: {:?} \n", key);
             }
         }
         let version = elevator_data.version;

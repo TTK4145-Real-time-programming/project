@@ -16,6 +16,6 @@ motor_driving_timeout = 10000
 
 [hardware]
 n_floors = 4
-driver_address = "host.docker.internal"
-driver_port = 15658
+driver_address = "localhost"
+driver_port = 15657
 hw_thread_sleep_time = 10
