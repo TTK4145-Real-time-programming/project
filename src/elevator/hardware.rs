@@ -60,7 +60,6 @@ pub struct ElevatorDriver {
     hw_floor_indicator_rx: cbc::Receiver<u8>,
     hw_door_light_rx: cbc::Receiver<bool>,
     hw_obstruction_tx: cbc::Sender<bool>,
-    hw_stop_button_tx: cbc::Sender<bool>,
     terminate_rx: cbc::Receiver<()>,
 }
 
@@ -74,7 +73,6 @@ impl ElevatorDriver {
         hw_floor_indicator_rx: cbc::Receiver<u8>,
         hw_door_light_rx: cbc::Receiver<bool>,
         hw_obstruction_tx: cbc::Sender<bool>,
-        hw_stop_button_tx: cbc::Sender<bool>,
         terminate_rx: cbc::Receiver<()>,
     ) -> ElevatorDriver {
         ElevatorDriver {
@@ -90,7 +88,6 @@ impl ElevatorDriver {
             hw_floor_indicator_rx,
             hw_door_light_rx,
             hw_obstruction_tx,
-            hw_stop_button_tx,
             terminate_rx,
         }
     }
@@ -118,11 +115,6 @@ impl ElevatorDriver {
                         }
                     }
                 }
-            }
-
-            // Check if stop button is pressed
-            if self.elevator.stop_button() {
-                unwrap_or_exit!(self.hw_stop_button_tx.send(true));
             }
 
             // Check if obstruction is toggled
