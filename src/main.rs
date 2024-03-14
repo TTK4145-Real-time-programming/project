@@ -104,7 +104,6 @@ fn main() -> std::io::Result<()> {
     let (hw_floor_indicator_tx, hw_floor_indicator_rx) = cbc::unbounded::<u8>();
     let (hw_door_light_tx, hw_door_light_rx) = cbc::unbounded::<bool>();
     let (hw_obstruction_tx, hw_obstruction_rx) = cbc::unbounded::<bool>();
-    let (hw_stop_button_tx, hw_stop_button_rx) = cbc::unbounded::<bool>();
 
     // Start the hardware module
     let elevator_driver = ElevatorDriver::new(
@@ -116,7 +115,6 @@ fn main() -> std::io::Result<()> {
         hw_floor_indicator_rx,
         hw_door_light_rx,
         hw_obstruction_tx,
-        hw_stop_button_tx,
         hw_terminate_rx,
     );
 
@@ -143,7 +141,6 @@ fn main() -> std::io::Result<()> {
         hw_floor_indicator_tx,
         hw_door_light_tx,
         hw_obstruction_rx,
-        hw_stop_button_rx,
         fsm_hall_requests_rx,
         fsm_cab_request_rx,
         fsm_order_complete_tx,

@@ -66,7 +66,6 @@ mod fsm_tests {
             hw_floor_indicator_tx,
             hw_door_light_tx,
             hw_obstruction_rx,
-            hw_stop_button_rx,
             fsm_hall_requests_rx,
             fsm_cab_request_rx,
             fsm_order_complete_tx,

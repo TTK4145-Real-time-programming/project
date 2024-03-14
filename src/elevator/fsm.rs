@@ -52,7 +52,6 @@ pub struct ElevatorFSM {
     hw_floor_indicator_tx: cbc::Sender<u8>,
     hw_door_light_tx: cbc::Sender<bool>,
     hw_obstruction_rx: cbc::Receiver<bool>,
-    hw_stop_button_rx: cbc::Receiver<bool>,
 
     // Coordinator channels
     fsm_hall_requests_rx: cbc::Receiver<Vec<Vec<bool>>>,
@@ -83,7 +82,6 @@ impl ElevatorFSM {
         hw_floor_indicator_tx: cbc::Sender<u8>,
         hw_door_light_tx: cbc::Sender<bool>,
         hw_obstruction_rx: cbc::Receiver<bool>,
-        hw_stop_button_rx: cbc::Receiver<bool>,
 
         fsm_hall_requests_rx: cbc::Receiver<Vec<Vec<bool>>>,
         fsm_cab_request_rx: cbc::Receiver<u8>,
@@ -97,7 +95,6 @@ impl ElevatorFSM {
             hw_floor_indicator_tx,
             hw_door_light_tx,
             hw_obstruction_rx,
-            hw_stop_button_rx,
 
             fsm_hall_requests_rx,
             fsm_cab_request_rx,
