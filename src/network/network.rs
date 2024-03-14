@@ -112,8 +112,8 @@ impl Network {
                             let peer_addresses = data.states.keys().cloned().collect::<Vec<String>>();
                             send_ack(peer_addresses, data, max_retries, ack_timeout);
                         }
-                        Err(e) => {
-                            error!("Error receiving data to send: {}", e);
+                        Err(error) => {
+                            error!("Error receiving data to send: {}", error);
                         }
                     }
                 }
@@ -126,9 +126,9 @@ impl Network {
         let data_rx_thread = Builder::new().name("data_rx".into());
         data_rx_thread.spawn(move || {
             let socket = match UdpSocket::bind(format!("0.0.0.0:{}", msg_port)) {
-                Ok(s) => s,
-                Err(e) => {
-                    error!("Failed to bind UDP socket on port {}: {}", msg_port, e);
+                Ok(socket) => socket,
+                Err(error) => {
+                    error!("Failed to bind UDP socket on port {}: {}", msg_port, error);
                     process::exit(1);
                 }
             };
@@ -155,8 +155,11 @@ impl Network {
 /***************************************/
 fn send_ack(peer_addresses: Vec<String>, data: ElevatorData, max_retries: u32, ack_timeout: u64) {
     let socket = match UdpSocket::bind("0.0.0.0:0") {
-        Ok(s) => s,
-        Err(_) => process::exit(1),
+        Ok(socket) => socket,
+        Err(error) => {
+            error!("Failed to bind UDP socket: {}", error);
+            process::exit(1);
+        }
     };
 
     for peer_address in peer_addresses {
@@ -176,11 +179,11 @@ fn send_ack(peer_addresses: Vec<String>, data: ElevatorData, max_retries: u32, a
                     let mut buffer = [0; 1024];
 
                     match socket.recv_from(&mut buffer) {
-                        Ok((_number_of_bytes, src_addr)) => {
+                        Ok((number_of_bytes, src_addr)) => {
                             if src_addr.to_string() == peer_address {
 
                                 // Verify if the received message is an ACK
-                                let msg = String::from_utf8_lossy(&buffer[.._number_of_bytes]);
+                                let msg = String::from_utf8_lossy(&buffer[..number_of_bytes]);
                                 let ack = msg.trim();
                                 if ack == "ACK" {
                                     ack_received = true;
@@ -214,12 +217,12 @@ fn send_ack(peer_addresses: Vec<String>, data: ElevatorData, max_retries: u32, a
 fn recv_ack(socket: &UdpSocket) -> Option<ElevatorData> {
     let mut buffer = [0; 1024];
     match socket.recv_from(&mut buffer) {
-        Ok((number_of_bytes, src_addr)) => {
+        Ok((number_of_bytes, src_address)) => {
             let received_data = &buffer[..number_of_bytes];
             let message = match std::str::from_utf8(received_data) {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Invalid UTF-8 sequence: {}", e);
+                Ok(message) => message,
+                Err(error) => {
+                    error!("Invalid UTF-8 sequence: {}", error);
                     return None;
                 }
             };
@@ -227,19 +230,19 @@ fn recv_ack(socket: &UdpSocket) -> Option<ElevatorData> {
             let deserialized_message: Result<ElevatorData, _> = serde_json::from_str(message);
             match deserialized_message {
                 Ok(data) => {
-                    if let Err(e) = socket.send_to(b"ACK", src_addr) {
-                        error!("Failed to send ACK to {}: {}", src_addr, e);
+                    if let Err(error) = socket.send_to(b"ACK", src_address) {
+                        error!("Failed to send ACK to {}: {}", src_address, error);
                     }
                     Some(data)
                 },
-                Err(e) => {
-                    error!("Failed to deserialize message: {}", e);
+                Err(error) => {
+                    error!("Failed to deserialize message: {}", error);
                     None
                 }
             }
         },
-        Err(e) => {
-            error!("Failed to receive a message: {}", e);
+        Err(error) => {
+            error!("Failed to receive a message: {}", error);
             None
         },
     }
@@ -250,11 +253,11 @@ fn find_local_ip(address: String, max_attempts: u32, delay_between_attempts: Dur
     while attempts < max_attempts {
         match net::TcpStream::connect(address.clone()) {
             Ok(stream) => match stream.local_addr() {
-                Ok(addr) => return Some(addr.ip()),
-                Err(e) => error!("Failed to get local address: {}", e),
+                Ok(address) => return Some(address.ip()),
+                Err(error) => error!("Failed to get local address: {}", error),
             },
-            Err(e) => {
-                error!("Attempt {} to generate ID failed: {}", attempts + 1, e);
+            Err(error) => {
+                error!("Attempt {} to generate ID failed: {}", attempts + 1, error);
                 sleep(delay_between_attempts);
             },
         }
