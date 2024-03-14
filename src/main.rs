@@ -1,5 +1,5 @@
 /***************************************/
-/*        3rd party libraries          */
+/*              Libraries              */
 /***************************************/
 use crossbeam_channel as cbc;
 use network_rust::udpnet;
@@ -125,7 +125,8 @@ fn main() -> std::io::Result<()> {
         .spawn(move || elevator_driver.run())
         .unwrap();
 
-    // Start the network module
+    // Start the network module, contructor spawns the threads:
+    // peer_tx, peer_rx, data_tx, data_rx
     let network = Network::new(
         &config.network,
         net_data_send_rx,

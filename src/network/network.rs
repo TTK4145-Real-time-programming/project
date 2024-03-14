@@ -2,27 +2,27 @@
  * Facilitates network communications for the elevator system.
  *
  * This module sets up networking capabilities, allowing for the sending and receiving
- * of elevator data and peer updates over UDP. It manages network interactions necessary
+ * of elevator data and peer updates over UDP with acknowledgements. It manages network interactions necessary
  * for the distributed operation of elevator controllers. It communicates with the
- * coordinator thread.
+ * coordinator thread. 
  *
  * # Network
- * Struct for managing network communications.
+ * Struct for initializing network communications.
  *
  * # Fields
- * - `id`: Unique identifier for the network node, based on the local IP and process ID, or a custom argument.
+ * - `id`: Unique identifier for the network node, based on the local IP and port.
  *
  * # Constructor arguments
  * - `config`:                  Network configuration settings.
  * - `net_data_send_rx`:        Receiver for elevator data to be sent.
- * - `net_data_recv_tx`:        Sender for forwarding received elevator data.
- * - `net_peer_update_tx`:      Sender for forwarding received peer updates.
+ * - `net_data_recv_tx`:        Sender for forwarding received elevator data to coordinator.
+ * - `net_peer_update_tx`:      Sender for forwarding received peer updates to coordinator.
  * - `net_peer_tx_enable_rx`:   Receiver to enable/disable peer ID broadcasting.
  *
  */
 
 /***************************************/
-/*        3rd party libraries          */
+/*             Libraries               */
 /***************************************/
 use crossbeam_channel as cbc;
 use network_rust::udpnet;
@@ -105,15 +105,10 @@ impl Network {
                 let max_retries = max_retries;
                 let ack_timeout = ack_timeout;
                 loop {
-                    // Wait to receive packet to transmit
                     match net_data_send_rx.recv() {
                         Ok(data) => {
-                            // Get all available peer addresses
                             let peer_addresses = data.states.keys().cloned().collect::<Vec<String>>();
-
-                            // Send the data to all available peers
                             send_ack(peer_addresses, data, max_retries, ack_timeout);
-
                         }
                         Err(e) => error!("Error receiving data to send: {}", e),
                     }
@@ -153,32 +148,27 @@ impl Network {
 /*           Local functions           */
 /***************************************/
 fn send_ack(peer_addresses: Vec<String>, data: ElevatorData, max_retries: u32, ack_timeout: u64) {
-    // Create a UDP socket
     let socket = match UdpSocket::bind("0.0.0.0:0") {
         Ok(s) => s,
         Err(_) => process::exit(1),
     };
 
-    // Send data to all available peers
     for peer_address in peer_addresses {
         let mut retries = 0;
-
-        // Serialize the data
         let serialized_data_string = serde_json::to_string(&data).unwrap();
         let serialized_data = serialized_data_string.as_bytes();
 
-        // Retry until max_retries or ACK received
+        // Try until max_retries or ACK received
         while retries < max_retries {
             
             if socket.send_to(&serialized_data, &peer_address).is_ok() {
                 let start = Instant::now();
                 let mut ack_received = false;
-
-                // Set a non-blocking read timeout for ACK
                 socket.set_read_timeout(Some(Duration::from_millis(ack_timeout))).unwrap();
 
                 while start.elapsed() < Duration::from_millis(ack_timeout) {
                     let mut buffer = [0; 1024];
+
                     match socket.recv_from(&mut buffer) {
                         Ok((_number_of_bytes, src_addr)) => {
                             if src_addr.to_string() == peer_address {
@@ -197,7 +187,7 @@ fn send_ack(peer_addresses: Vec<String>, data: ElevatorData, max_retries: u32, a
                 }
 
                 if ack_received {
-                    break; // Exit the retry loop on receiving ACK
+                    break;
                 }
                 info!("No ACK received, retrying...");
                 retries += 1;
