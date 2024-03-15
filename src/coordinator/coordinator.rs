@@ -282,7 +282,7 @@ impl Coordinator {
                     self.hall_request_assigner(false);
                 }
 
-                if new_elevator.is_some() {
+                if new_elevators.is_some() {
                     self.hall_request_assigner(true);
                 }
             }
