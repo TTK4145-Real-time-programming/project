@@ -1,5 +1,31 @@
+/**
+ * Manages coordination between different elevators.
+ *
+ * The coordinator is responsible for making sure each elevator is assigned different hall requests. 
+ * It uses the executable "hall_request_assigner" for assigning the different elevators. 
+ * Because of network loss the coordinator for different elevators might sit on different information.
+ * Therefore there might arise merge-conflits. It uses the "MergeType" enum type to determine the next course of action. 
+ * The coordinator communicates with the network, hardware and fsm module. 
+ *
+ *
+ * # Fields
+ * - `hw_button_light_tx`:      Sends instructions to the door's open/close light indicator.
+ * - `hw_request_rx`:           Receives recuests from local elevator buttons. 
+ * - `fsm_hall_requests_tx`:    Sends hall requests to the FSM.
+ * - `fsm_cab_request_tx`:      Sends cab requests to the FSM.
+ * - `fsm_state_rx`:            Receives the current state of the local elevator.
+ * - `fsm_order_complete_rx`:   Receives notifications of completed orders from the FSM.
+ * - `net_data_send_tx`:        Broadcasts the ElevatorData to the network.
+ * - `net_data_recv_rx`:        Receives the broadcasted ElevatorData from the network.
+ * - `net_peer_update_rx`:      Receives updates of the peer list from the network.
+ * - `coordinator_terminate_rx` Receives a signal to terminate the coordinator thread. Used for testing.
+ * - `ElevatorData`:            Contains hall requests and states for all of the elevators.
+ * - `local_id`:                Contains the id of the local elevator.
+ * - `n_floors`:                The number of floors serviced by the elevator.
+ */
+
 /***************************************/
-/*        3rd party libraries          */
+/*             Libraries               */
 /***************************************/
 use driver_rust::elevio::elev::{CAB, HALL_DOWN, HALL_UP};
 use log::{info, error};
@@ -182,7 +208,7 @@ impl Coordinator {
                                 != self.elevator_data.hall_requests[floor as usize]
                                     [HALL_DOWN as usize]
                             {
-                                self.update_lights((
+                                self.update_light((
                                     floor,
                                     HALL_DOWN,
                                     new_hall_request[floor as usize][HALL_DOWN as usize],
@@ -192,7 +218,7 @@ impl Coordinator {
                                 != self.elevator_data.hall_requests[floor as usize]
                                     [HALL_UP as usize]
                             {
-                                self.update_lights((
+                                self.update_light((
                                     floor,
                                     HALL_UP,
                                     new_hall_request[floor as usize][HALL_UP as usize],
@@ -224,25 +250,24 @@ impl Coordinator {
                             }
                         } 
                     }
-                    MergeType::Reject => {
-                        // TODO: reject merge
-                    }
+                    MergeType::Reject => {}
                 }
             }
 
             Event::NewPeerUpdate(peer_update) => {
                 let mut lost_elevators = peer_update.lost;
+                let mut new_elevators = peer_update.new;
                 info!("Peers: {:?}", peer_update.peers);
 
                 //Removing dead elevators
-                for elevator in lost_elevators.iter_mut() {
-                    if elevator != &self.local_id {
-                        self.elevator_data.states.remove(elevator);
+                for id in lost_elevators.iter_mut() {
+                    if id != &self.local_id {
+                        self.elevator_data.states.remove(id);
                     }
                 }
 
                 // Add new elevators
-                for id in peer_update.new.iter() {
+                for id in new_elevators.iter_mut() {
                     self.elevator_data.states.insert(
                         id.clone(),
                         ElevatorState {
@@ -267,8 +292,7 @@ impl Coordinator {
                     //Sending the change to the fsm
                     self.fsm_cab_request_tx.send(request.0).expect("Failed to send cab request to fsm");
 
-                    //Updating lights
-                    self.update_lights((request.0, CAB, true));
+                    self.update_light((request.0, CAB, true));
                 } 
                 
                 else if request.1 == HALL_DOWN || request.1 == HALL_UP {
@@ -278,8 +302,7 @@ impl Coordinator {
                     // Calculating and sending to fsm
                     self.hall_request_assigner(true);
 
-                    // Updating lights
-                    self.update_lights((request.0, request.1, true));
+                    self.update_light((request.0, request.1, true));
                 }
 
             }
@@ -290,8 +313,8 @@ impl Coordinator {
 
                 for floor in 0..self.n_floors {
                     if !current_cab_requests[floor as usize] && elevator_state.cab_requests[floor as usize] {
-                        //Updating cab button lights with new changes from FSM
-                        self.update_lights((floor, CAB, true));
+
+                        self.update_light((floor, CAB, true));
                     }
                 }
 
@@ -314,20 +337,18 @@ impl Coordinator {
                         .unwrap()
                         .cab_requests[completed_order.0 as usize] = false;
                 }
-
+                
                 if completed_order.1 == HALL_DOWN || completed_order.1 == HALL_UP {
                     self.elevator_data.hall_requests[completed_order.0 as usize][completed_order.1 as usize] = false;
                 }
                 
-                // Update lights and hall requests
-                self.update_lights((completed_order.0, completed_order.1, false));
+                self.update_light((completed_order.0, completed_order.1, false));
                 self.hall_request_assigner(true);
             }
         }
     }
 
-    // Update lights
-    fn update_lights(&self, light: (u8, u8, bool)) {
+    fn update_light(&self, light: (u8, u8, bool)) {
         //Sending change in lights
         if let Err(e) = self.hw_button_light_tx.send(light) {
             error!("Failed to send light command to light thread from coordinator: {:?}", e);
@@ -463,7 +484,7 @@ pub mod testing {
         }
 
         pub fn test_update_lights(&self, light: (u8, u8, bool)) {
-            self.update_lights(light);
+            self.update_light(light);
         }
 
         pub fn test_check_merge_type(&self, elevator_data: ElevatorData) -> super::MergeType {
