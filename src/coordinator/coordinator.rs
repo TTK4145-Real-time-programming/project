@@ -277,6 +277,10 @@ impl Coordinator {
                         },
                     );
                 }
+
+                if lost_elevators.len() > 0 || new_elevators.is_some() {
+                    self.hall_request_assigner(false);
+                }
             }
 
             Event::RequestReceived(request) => {
