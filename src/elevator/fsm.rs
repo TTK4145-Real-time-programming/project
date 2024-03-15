@@ -201,17 +201,21 @@ impl ElevatorFSM {
                                 self.close_door();
                                 
                                 self.state.direction = self.choose_direction();
-                                self.complete_orders();
-
-                                let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
-
-                                if self.state.direction == Stop {
-                                    self.state.behaviour = Idle;
+                                if self.complete_orders() {
+                                    self.open_door();
                                 }
-                                
+
                                 else {
-                                    self.state.behaviour = Moving;
-                                    self.reset_motor_timer();
+                                    let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
+    
+                                    if self.state.direction == Stop {
+                                        self.state.behaviour = Idle;
+                                    }
+                                    
+                                    else {
+                                        self.state.behaviour = Moving;
+                                        self.reset_motor_timer();
+                                    }
                                 }
                                 
                                 let _ = self.fsm_state_tx.send(self.state.clone());
