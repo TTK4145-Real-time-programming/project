@@ -278,8 +278,12 @@ impl Coordinator {
                     );
                 }
 
-                if lost_elevators.len() > 0 || new_elevators.is_some() {
+                if lost_elevators.len() > 0 {
                     self.hall_request_assigner(false);
+                }
+
+                if new_elevator.is_some() {
+                    self.hall_request_assigner(true);
                 }
             }
 
