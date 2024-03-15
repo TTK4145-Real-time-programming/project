@@ -254,10 +254,16 @@ impl ElevatorFSM {
         else {
             self.state.direction = self.choose_direction();
 
-            if self.state.direction == Stop {
+            if self.complete_orders() {
+                let _ = self.hw_motor_direction_tx.send(Direction::Stop.to_u8());
+                self.open_door();
+            }
+
+            else if self.state.direction == Stop {
                 self.state.behaviour = Idle;
                 let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
             } 
+            
             else {
                 self.state.behaviour = Moving;
                 let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
