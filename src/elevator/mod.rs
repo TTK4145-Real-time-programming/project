@@ -5,4 +5,3 @@ pub mod cab_orders;
 
 pub use fsm::ElevatorFSM;
 pub use hardware::ElevatorDriver;
-pub use cab_orders::CabOrders;

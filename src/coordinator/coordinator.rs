@@ -37,7 +37,6 @@ use crossbeam_channel as cbc;
 /*           Local modules             */
 /***************************************/
 use crate::shared::{Behaviour, Direction, ElevatorData, ElevatorState};
-use crate::config::Config;
 
 /***************************************/
 /*               Enums                 */
