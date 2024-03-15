@@ -12,7 +12,7 @@ delay_between_attempts_id_generation = 1000
 n_floors = 4
 door_open_time = 3000
 door_timeout = 15000
-motor_driving_timeout = 10000
+motor_timeout = 10000
 
 [hardware]
 n_floors = 4

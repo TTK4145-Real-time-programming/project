@@ -1,5 +1,5 @@
 /***************************************/
-/*        3rd party libraries          */
+/*              Libraries              */
 /***************************************/
 use crossbeam_channel as cbc;
 use network_rust::udpnet;
@@ -29,14 +29,11 @@ mod shared;
 /***************************************/
 fn main() -> std::io::Result<()> {
 
-    // Initialize the logger
     env_logger::init();
-
-    // Load the configuration
     let mut config = config::load_config();
 
     // Parse command line arguments
-    let matches = App::new("project")
+    let arguments = App::new("project")
         .version("1.0")
         .about("Elevator project in TTK4145 distributed systems.")
         .arg(
@@ -63,15 +60,15 @@ fn main() -> std::io::Result<()> {
         .get_matches();
 
     // Override config with command line arguments if provided
-    if let Some(addr) = matches.value_of("hardware_address") {
+    if let Some(addr) = arguments.value_of("hardware_address") {
         config.hardware.driver_address = addr.to_string();
     }
 
-    if let Some(port) = matches.value_of("hardware_port") {
+    if let Some(port) = arguments.value_of("hardware_port") {
         config.hardware.driver_port = port.parse().expect("Failed to parse hardware port");
     }
 
-    if let Some(port) = matches.value_of("network_port") {
+    if let Some(port) = arguments.value_of("network_port") {
         config.network.msg_port = port.parse().expect("Failed to parse network port");
     }
 
@@ -79,10 +76,11 @@ fn main() -> std::io::Result<()> {
     info!("Driver port: {}", config.hardware.driver_port.to_string());
     info!("Network port: {}", config.network.msg_port.to_string());
 
-    // Termination signals
+    // Channels for unit testing
     let (_fsm_terminate_tx, fsm_terminate_rx) = cbc::unbounded::<()>();
     let (_coordinator_terminate_tx, coordinator_terminate_rx) = cbc::unbounded::<()>();
     let (_hw_terminate_tx, hw_terminate_rx) = cbc::unbounded::<()>();
+    let (_net_peer_tx_enable_tx, net_peer_tx_enable_rx) = cbc::unbounded::<bool>();
 
     // FSM channels
     let (fsm_hall_requests_tx, fsm_hall_requests_rx) = cbc::unbounded::<Vec<Vec<bool>>>();
@@ -94,8 +92,7 @@ fn main() -> std::io::Result<()> {
     let (net_data_send_tx, net_data_send_rx) = cbc::unbounded::<ElevatorData>();
     let (net_data_recv_tx, net_data_recv_rx) = cbc::unbounded::<ElevatorData>();
     let (net_peer_update_tx, net_peer_update_rx) = cbc::unbounded::<udpnet::peers::PeerUpdate>();
-    let (net_peer_tx_enable_tx, net_peer_tx_enable_rx) = cbc::unbounded::<bool>();
-
+    
     // Hardware channels
     let (hw_motor_direction_tx, hw_motor_direction_rx) = cbc::unbounded::<u8>();
     let (hw_button_light_tx, hw_button_light_rx) = cbc::unbounded::<(u8, u8, bool)>();
@@ -104,7 +101,6 @@ fn main() -> std::io::Result<()> {
     let (hw_floor_indicator_tx, hw_floor_indicator_rx) = cbc::unbounded::<u8>();
     let (hw_door_light_tx, hw_door_light_rx) = cbc::unbounded::<bool>();
     let (hw_obstruction_tx, hw_obstruction_rx) = cbc::unbounded::<bool>();
-    let (hw_stop_button_tx, hw_stop_button_rx) = cbc::unbounded::<bool>();
 
     // Start the hardware module
     let elevator_driver = ElevatorDriver::new(
@@ -116,16 +112,14 @@ fn main() -> std::io::Result<()> {
         hw_floor_indicator_rx,
         hw_door_light_rx,
         hw_obstruction_tx,
-        hw_stop_button_tx,
         hw_terminate_rx,
     );
 
     let elevator_driver_thread = Builder::new().name("elevator_driver".into());
-    elevator_driver_thread
-        .spawn(move || elevator_driver.run())
-        .unwrap();
+    elevator_driver_thread.spawn(move || elevator_driver.run()).unwrap();
 
-    // Start the network module
+    // Start the network module, contructor spawns the threads:
+    // peer_tx, peer_rx, data_tx, data_rx
     let network = Network::new(
         &config.network,
         net_data_send_rx,
@@ -143,7 +137,6 @@ fn main() -> std::io::Result<()> {
         hw_floor_indicator_tx,
         hw_door_light_tx,
         hw_obstruction_rx,
-        hw_stop_button_rx,
         fsm_hall_requests_rx,
         fsm_cab_request_rx,
         fsm_order_complete_tx,
@@ -152,16 +145,12 @@ fn main() -> std::io::Result<()> {
     );
 
     let elevator_fsm_thread = Builder::new().name("elevator_fsm".into());
-    elevator_fsm_thread
-        .spawn(move || elevator_fsm.run())
-        .unwrap();
+    elevator_fsm_thread.spawn(move || elevator_fsm.run()).unwrap();
 
     // Create the elevator data instance
     let n_floors = config.hardware.n_floors.clone();
     let mut elevator_data = ElevatorData::new(n_floors);
-    elevator_data
-        .states
-        .insert(id.clone(), ElevatorState::new(n_floors));
+    elevator_data.states.insert(id.clone(), ElevatorState::new(n_floors));
 
     info!("Elevator data read from file {:?}", elevator_data);
 

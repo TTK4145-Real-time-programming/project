@@ -1,5 +1,5 @@
 /***************************************/
-/*        3rd party libraries          */
+/*               Lbraries              */
 /***************************************/
 use serde::Deserialize;
 use std::fs;
@@ -29,7 +29,7 @@ pub struct NetworkConfig {
 pub struct ElevatorConfig {
     pub n_floors: u8,
     pub door_open_time: u64,
-    pub motor_driving_timeout: u64,
+    pub motor_timeout: u64,
     pub door_timeout: u64,
 }
 
