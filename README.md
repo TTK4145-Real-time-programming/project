@@ -1,41 +1,51 @@
-This is unfinished!
-===============
+# Distributed Elevator System
 
-To run project, use command:
+## Introduction
+This project implements a distributed system utilizing a peer-to-peer network architecture, designed for the "Real-time programming" course at the Norwegian University of Science and Technology (NTNU). It facilitates the operation of multiple elevator instances within an elevator lab environment, ensuring a seamless and efficient elevator control system.
+
+## Getting Started
+
+### Prerequisites
+- Ensure that Rust is installed on your system. If Rust is not installed, follow the installation instructions on the [official Rust website](https://www.rust-lang.org/tools/install).
+- Amd64 architecture to run linux executables
+
+### Running the Project
+To launch an elevator instance, open a terminal and execute the following command:
+
+```bash
+cargo run
+```
+
+For increased verbosity and detailed logging, use:
+
+```bash
 RUST_LOG=trace,network_rust=off cargo run
+```
 
-Ensure that the config has these settings:
-Same message and peer port on all elevators
+The same command can be initiated on multiple computers to initiate multiple elevators working in tandem within the peer-to-peer network.
+
+### Configuration
+For the distributed system to function correctly, it is essential that all elevator instances share the same network configuration. Place the following settings within the `config.toml` file:
+
+```rust
+[network]
+msg_port = 19735
+peer_port = 19738
+```
+
+The elevator server can be initiated by running the following command at one of the computers in the real-time lab:
+
+```bash
+elevatorserver
+```
+
+The hardware module must know which port to use for hardware API calls, and this defaults to 15657. Place this in the `config.toml` file:
+
+```rust
+[hardware]
 n_floors = 4
 driver_address = "localhost"
 driver_port = 15657
-
-1. Install and run Docker: [Docker](https://www.docker.com)
-
-
-2. Create docker image using this command:
-```
-docker build -t <image-name> .
 ```
 
-3. Create a network:
-```
-docker network create <network-name>
-```
-
-4. (Alternative 1. Not recommended) Create two or more instances of the docker image to simulate multiple devices on the same network (open two terminals):
-```
-docker run --name <instance1-name> --network <network-name> <image-name>
-```
-```
-docker run --name <instance2-name> --network <network-name> <image-name>
-```
-
-4. (Alternative 2. Recommended) Open up a Dev Containter in VSCode using the docker image, and open up two terminals.
-
-5. Create two instances of simulators by running the simulator scripts. Note that the two instances must run on two different ports,
-which can be set as an input parameter to the executable e.g:
-```
-./simulator/simulator_macos --port 15657
-```
-These ports must also be specified in the `config.toml` file when running the script on a specific simulator.
+Use `n_floors` = 4 at the real-time lab.
