@@ -158,7 +158,12 @@ impl ElevatorFSM {
                 }
                 recv(self.hw_obstruction_rx) -> obstruction => {
                     match obstruction {
-                        Ok(value) => self.obstruction = value,
+                        Ok(value) => {
+                            self.obstruction = value;
+                            if value {
+                                self.reset_obstruction_timer();
+                            }
+                        }
                         Err(error) => {
                             error!("ERROR - hw_obstruction_rx: {}", error);
                             std::process::exit(1);
@@ -225,9 +230,9 @@ impl ElevatorFSM {
                             }
                         }
                         Error => {
-                            if !self.obstruction {
-                                self.state.behaviour = DoorOpen;
-                                info!("Door cloosing!");
+                            if self.obstruction_timer > Instant::now() {
+                                self.open_door();
+                                info!("Door closing!");
                             } 
                         }
                     }
