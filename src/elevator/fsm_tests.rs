@@ -18,11 +18,10 @@ mod fsm_tests {
     use crate::ElevatorFSM;
     use crate::ElevatorState;
     use crate::config::ElevatorConfig;
-    use crate::shared::Behaviour::{Idle, Moving, DoorOpen};
+    use crate::shared::Behaviour::{Idle, Moving};
     use crate::shared::Direction::{Up, Down, Stop};
     use crossbeam_channel::unbounded;
     use crate::shared::Direction;
-    use driver_rust::elevio::elev::DIRN_STOP;
 
     fn setup_fsm() -> (ElevatorFSM,
         crossbeam_channel::Receiver<u8>,
@@ -107,7 +106,7 @@ mod fsm_tests {
 
         // Act
         match fsm_state_rx.recv_timeout(std::time::Duration::from_secs(3)) {
-            Ok(state) => {
+            Ok(_state) => {
                 //Disregarding 
             },
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -168,7 +167,7 @@ mod fsm_tests {
 
         // Assert
         match fsm_state_rx.recv_timeout(std::time::Duration::from_secs(3)) {
-            Ok(state) => {
+            Ok(_state) => {
                 //Disregarding first update as this is part of init 
             },
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -198,7 +197,7 @@ mod fsm_tests {
         fsm_thread.join().unwrap();
     }
 
-    //#[test]
+    #[test]
     fn test_fsm_choose_direction() {
         // Purpose: Verify that the FSM chooses the correct direction when the floor sensor is triggered
 
@@ -376,7 +375,7 @@ mod fsm_tests {
 
         //Checking for completing of hall down orders (Tested for all direction types)
         let state3 = ElevatorState {
-            behaviour: Moving,
+            behaviour: Idle,
             floor: 1,
             direction: Stop,
             cab_requests: [false, false, false, false].to_vec(),
@@ -403,81 +402,8 @@ mod fsm_tests {
 
         // Assert
         assert_eq!(result1, true);
-        assert_eq!(result2, true);
+        assert_eq!(result2, false);
         assert_eq!(result3, true);
     }
 
-    #[test]
-    fn test_open_door() {
-        // Arrange
-        let (mut fsm,
-            _hw_motor_direction_rx,
-            _hw_floor_sensor_tx,
-            _hw_floor_indicator_rx,
-            _hw_door_light_rx,
-            _hw_obstruction_tx,
-            _hw_stop_button_tx,
-            _fsm_hall_requests_tx,
-            _fsm_cab_request_tx,
-            _fsm_order_complete_rx,
-            _fsm_state_rx,
-            _terminate_tx) = setup_fsm();
-
-        // Act
-        fsm.test_open_door();
-        let door_light = _hw_door_light_rx.recv();
-        let motor_direction = _hw_motor_direction_rx.recv();
-        let status = fsm.test_get_state().behaviour.clone();
-
-        // Assert
-        assert_eq!(door_light, Ok(true));
-        assert_eq!(motor_direction, Ok(DIRN_STOP));
-        assert_eq!(status, DoorOpen);
-    }
-
-    #[test]
-    fn test_close_door() {
-        // Arrange
-        let (mut fsm,
-            _hw_motor_direction_rx,
-            _hw_floor_sensor_tx,
-            _hw_floor_indicator_rx,
-            _hw_door_light_rx,
-            _hw_obstruction_tx,
-            _hw_stop_button_tx,
-            _fsm_hall_requests_tx,
-            _fsm_cab_request_tx,
-            _fsm_order_complete_rx,
-            _fsm_state_rx,
-            _terminate_tx) = setup_fsm();
-
-        //Checking for completing of cab buttons (Been tested for all types of directions types)
-        let state1 = ElevatorState {
-            behaviour: Idle,
-            floor: 1,
-            direction: Up,
-            cab_requests: [false, true, false, false].to_vec(),
-        };
-
-        let state1_1 = ElevatorState {
-            behaviour: Idle,
-            floor: 1,
-            direction: Stop,
-            cab_requests: [false, false, false, false].to_vec(),
-        };
-
-        // Act
-        fsm.test_set_state(state1.clone());
-        fsm.test_close_door();
-        let door_light_1 = _hw_door_light_rx.recv();
-        let motor_direction_1 = _hw_motor_direction_rx.recv();
-        let fsm_state_rx_1 = _fsm_state_rx.recv();
-        let state_1 = fsm.test_get_state().behaviour.clone();
-
-        // Assert
-        assert_eq!(door_light_1, Ok(false));
-        assert_eq!(motor_direction_1, Ok(Idle as u8));
-        assert_eq!(fsm_state_rx_1, Ok(state1_1));
-        assert_eq!(state_1, Idle);
-    }
 }

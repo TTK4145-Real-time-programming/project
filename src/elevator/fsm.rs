@@ -448,11 +448,6 @@ pub mod testing {
     use super::ElevatorFSM;
 
     impl ElevatorFSM {
-        // Publicly expose the private fields for testing
-        pub fn test_get_state(&self) -> ElevatorState {
-            self.state.clone()
-        }
-
         pub fn test_set_hall_requests(&mut self, hall_requests: Vec<Vec<bool>>) {
             self.hall_requests = hall_requests;
         }
@@ -471,14 +466,6 @@ pub mod testing {
 
         pub fn test_complete_orders(&mut self) -> bool {
             self.complete_orders()
-        }
-
-        pub fn test_open_door(&mut self) {
-            self.open_door()
-        }
-        
-        pub fn test_close_door(&mut self) {
-            self.close_door()
         }
         
     }

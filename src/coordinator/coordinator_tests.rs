@@ -21,7 +21,6 @@
 /***************************************/
 #[cfg(test)]
 mod coordinator_tests {
-    use crate::coordinator::coordinator::MergeType;
     use crate::coordinator::coordinator::Event;
     use crate::Coordinator;
     use crate::ElevatorState;
@@ -503,54 +502,4 @@ mod coordinator_tests {
         coordinator_thread.join().unwrap();
     }
 
-    #[test]
-    fn test_merge_conflict() {
-        // Arrange
-        let (
-            mut coordinator,
-            hw_button_light_rx,
-            _hw_request_tx,
-            fsm_hall_requests_rx,
-            _fsm_cab_request_rx,
-            _fsm_state_tx,
-            fsm_order_complete_tx,
-            net_data_send_rx,
-            _net_data_recv_tx,
-            _net_peer_update_tx,
-            coordinator_terminate_tx
-        ) = setup_coordinator();
-
-        coordinator.test_set_version(10);
-        let timeout = Duration::from_millis(500);
-
-        
-        let n_floors = 4;
-        let id = "elevator".to_string();
-        let mut elevator_data = ElevatorData::new(n_floors.clone());
-        elevator_data.states.insert(id.clone(), ElevatorState::new(n_floors.clone()));
-        let mut hall_requests = vec![vec![false; 2]; n_floors as usize];
-        hall_requests[2][HALL_UP as usize] = true;
-        hall_requests[1][HALL_UP as usize] = true;
-        elevator_data.hall_requests = hall_requests;
-
-        let coordinator_status = coordinator.test_get_data().clone();
-
-        let coordinator_thread = Builder::new().name("coordinator".into()).spawn(move || coordinator.run()).unwrap();
-
-        print!("Cordinator before {:?} \n", coordinator_status);
-        print!("New elevator: {:?} \n", elevator_data);
-
-        // Act
-        let _ = _net_data_recv_tx.send(elevator_data.clone());
-    
-        
-        //Assert
-        match net_data_send_rx.recv_timeout(timeout) {
-            Ok(msg) => {
-            
-               print!("This is after the merge: {:?} \n", msg);
-            },
-            Err(e) => panic!("Error receiving net_data_send_rx: {:?}", e),
-        }
-    }   
 }

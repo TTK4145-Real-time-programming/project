@@ -486,14 +486,6 @@ pub mod testing {
             self.update_light(light);
         }
 
-        pub fn test_check_merge_type(&self, elevator_data: ElevatorData) -> super::MergeType {
-            self.check_merge_type(elevator_data)
-        }
-
-        pub fn test_set_version(&mut self, version: u64) {
-            self.elevator_data.version = version;
-        }
-
         pub fn test_hall_request_assigner(&mut self, transmit: bool) {
             self.hall_request_assigner(transmit);
         }
@@ -525,8 +517,5 @@ pub mod testing {
             peer_list
         }
 
-        pub fn test_hall_request(&self) -> Vec<Vec<bool>>{
-            self.elevator_data.hall_requests.clone()
-        }
     }
 }
