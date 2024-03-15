@@ -1,5 +1,14 @@
-Simulator guide
+This is unfinished!
 ===============
+
+To run project, use command:
+RUST_LOG=trace,network_rust=off cargo run
+
+Ensure that the config has these settings:
+Same message and peer port on all elevators
+n_floors = 4
+driver_address = "localhost"
+driver_port = 15657
 
 1. Install and run Docker: [Docker](https://www.docker.com)
 
