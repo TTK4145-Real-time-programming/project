@@ -181,7 +181,7 @@ impl ElevatorFSM {
                             }
 
                             self.state.direction = self.choose_direction();
-                            if self.state.direction != Stop {
+                            if self.state.direction != Stop && self.state.behaviour != DoorOpen {
                                 self.state.behaviour = Moving;
                                 let _ = self.hw_motor_direction_tx.send(self.state.direction.to_u8());
                                 self.reset_motor_timer();
