@@ -160,7 +160,7 @@ impl ElevatorFSM {
                     match obstruction {
                         Ok(value) => {
                             self.obstruction = value;
-                            if value {
+                            if !value {
                                 self.reset_obstruction_timer();
                             }
                         }
