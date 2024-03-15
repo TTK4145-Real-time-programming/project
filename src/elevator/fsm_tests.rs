@@ -29,7 +29,6 @@ mod fsm_tests {
         crossbeam_channel::Receiver<u8>,
         crossbeam_channel::Receiver<bool>,
         crossbeam_channel::Sender<bool>,
-        crossbeam_channel::Sender<bool>,
         crossbeam_channel::Sender<Vec<Vec<bool>>>,
         crossbeam_channel::Sender<u8>,
         crossbeam_channel::Receiver<(u8, u8)>,
@@ -42,7 +41,6 @@ mod fsm_tests {
         let (hw_floor_indicator_tx, _hw_floor_indicator_rx) = unbounded::<u8>();
         let (hw_door_light_tx, hw_door_light_rx) = unbounded::<bool>();
         let (hw_obstruction_tx, hw_obstruction_rx) = unbounded::<bool>();
-        let (hw_stop_button_tx, hw_stop_button_rx) = unbounded::<bool>();
         let (fsm_hall_requests_tx, fsm_hall_requests_rx) = unbounded::<Vec<Vec<bool>>>();
         let (fsm_cab_request_tx, fsm_cab_request_rx) = unbounded::<u8>();
         let (fsm_order_complete_tx, fsm_order_complete_rx) = unbounded::<(u8, u8)>();
@@ -76,7 +74,6 @@ mod fsm_tests {
         _hw_floor_indicator_rx,
         hw_door_light_rx,
         hw_obstruction_tx,
-        hw_stop_button_tx,
         fsm_hall_requests_tx,
         fsm_cab_request_tx,
         fsm_order_complete_rx,
@@ -95,7 +92,6 @@ mod fsm_tests {
             _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
-            _hw_stop_button_tx,
             _fsm_hall_requests_tx,
             _fsm_cab_request_tx,
             _fsm_order_complete_rx,
@@ -152,7 +148,6 @@ mod fsm_tests {
             _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
-            _hw_stop_button_tx,
             _fsm_hall_requests_tx,
             _fsm_cab_request_tx,
             _fsm_order_complete_rx,
@@ -208,7 +203,6 @@ mod fsm_tests {
             _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
-            _hw_stop_button_tx,
             _fsm_hall_requests_tx,
             _fsm_cab_request_tx,
             _fsm_order_complete_rx,
@@ -271,7 +265,6 @@ mod fsm_tests {
             _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
-            _hw_stop_button_tx,
             _fsm_hall_requests_tx,
             _fsm_cab_request_tx,
             _fsm_order_complete_rx,
@@ -338,7 +331,6 @@ mod fsm_tests {
             _hw_floor_indicator_rx,
             _hw_door_light_rx,
             _hw_obstruction_tx,
-            _hw_stop_button_tx,
             _fsm_hall_requests_tx,
             _fsm_cab_request_tx,
             _fsm_order_complete_rx,
